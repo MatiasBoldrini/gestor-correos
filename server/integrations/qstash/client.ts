@@ -15,7 +15,7 @@ function getQStashClient(): Client {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Obtener URL base de la aplicación
+// Obtener URL base de la aplicación (normalizada, sin trailing slash)
 // ─────────────────────────────────────────────────────────────────────────────
 function getBaseUrl(): string {
   // En producción usar la URL del sitio
@@ -25,7 +25,8 @@ function getBaseUrl(): string {
     throw new Error("NEXT_PUBLIC_SITE_URL es requerido para programar ticks");
   }
 
-  return siteUrl;
+  // Normalizar: quitar trailing slash para evitar URLs con doble slash
+  return siteUrl.replace(/\/+$/, "");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

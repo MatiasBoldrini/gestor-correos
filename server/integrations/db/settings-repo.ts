@@ -74,3 +74,59 @@ export async function getSettings(): Promise<Settings> {
 
   return mapSettings(data as DbSettings);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actualizar configuración
+// ─────────────────────────────────────────────────────────────────────────────
+export type UpdateSettingsInput = Partial<{
+  timezone: string;
+  dailyQuota: number;
+  minDelaySeconds: number;
+  sendWindows: SendWindows;
+  signatureDefaultHtml: string | null;
+  allowlistEmails: string[];
+  allowlistDomains: string[];
+}>;
+
+export async function updateSettings(input: UpdateSettingsInput): Promise<Settings> {
+  const supabase = await createServiceClient();
+
+  const updateData: Record<string, unknown> = {};
+  
+  if (input.timezone !== undefined) {
+    updateData.timezone = input.timezone;
+  }
+  if (input.dailyQuota !== undefined) {
+    updateData.daily_quota = input.dailyQuota;
+  }
+  if (input.minDelaySeconds !== undefined) {
+    updateData.min_delay_seconds = input.minDelaySeconds;
+  }
+  if (input.sendWindows !== undefined) {
+    updateData.send_windows = input.sendWindows;
+  }
+  if (input.signatureDefaultHtml !== undefined) {
+    updateData.signature_default_html = input.signatureDefaultHtml;
+  }
+  if (input.allowlistEmails !== undefined) {
+    updateData.allowlist_emails = input.allowlistEmails;
+  }
+  if (input.allowlistDomains !== undefined) {
+    updateData.allowlist_domains = input.allowlistDomains;
+  }
+
+  updateData.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("settings")
+    .update(updateData)
+    .eq("id", 1)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`Error al actualizar configuración: ${error.message}`);
+  }
+
+  return mapSettings(data as DbSettings);
+}

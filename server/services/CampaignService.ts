@@ -517,23 +517,47 @@ export async function startCampaign(campaignId: string): Promise<SendRunResponse
     );
   }
 
+  // Crear send run
+  const sendRun = await createSendRun(campaignId);
+
   try {
-    // Crear send run
-    const sendRun = await createSendRun(campaignId);
-
-    // Actualizar estado de la campaña a sending
-    await updateCampaignStatus(campaignId, "sending");
-
-    // Programar el primer tick inmediatamente (delay 0)
+    // Programar el primer tick ANTES de actualizar el estado
+    // Así si QStash falla, la campaña no queda en "sending" sin tick programado
     await scheduleSendTick({
       campaignId,
       sendRunId: sendRun.id,
       delaySeconds: 0,
     });
+  } catch (err) {
+    // Si falla el scheduling (ej: QStash rechaza la URL), liberar lock y dar error claro
+    await releaseCampaignLock(campaignId);
+    
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    
+    // Detectar errores comunes de QStash para dar mensajes accionables
+    if (errorMessage.includes("loopback") || errorMessage.includes("localhost") || errorMessage.includes("::1")) {
+      throw new Error(
+        `Error de configuración: La URL del sitio (NEXT_PUBLIC_SITE_URL) apunta a localhost. ` +
+        `Configurá una URL pública en las variables de entorno de Vercel. Error original: ${errorMessage}`
+      );
+    }
+    
+    if (errorMessage.includes("invalid destination")) {
+      throw new Error(
+        `Error al programar el envío: La URL destino no es válida. ` +
+        `Verificá NEXT_PUBLIC_SITE_URL en las variables de entorno. Error original: ${errorMessage}`
+      );
+    }
+    
+    throw new Error(`Error al programar el primer tick de envío: ${errorMessage}`);
+  }
 
+  try {
+    // Una vez el tick está programado, actualizar el estado
+    await updateCampaignStatus(campaignId, "sending");
     return sendRun;
   } catch (err) {
-    // Si algo falla, liberar el lock
+    // Si falla actualizar el estado, igual liberar lock (el tick puede fallar en el próximo intento)
     await releaseCampaignLock(campaignId);
     throw err;
   }

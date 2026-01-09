@@ -1,0 +1,35 @@
+export type SendWindow = {
+  start: string;
+  end: string;
+};
+
+export type SendWindows = {
+  monday: SendWindow[];
+  tuesday: SendWindow[];
+  wednesday: SendWindow[];
+  thursday: SendWindow[];
+  friday: SendWindow[];
+  saturday: SendWindow[];
+  sunday: SendWindow[];
+};
+
+export type Settings = {
+  id: number;
+  timezone: string;
+  dailyQuota: number;
+  minDelaySeconds: number;
+  sendWindows: SendWindows;
+  signatureDefaultHtml: string | null;
+  allowlistEmails: string[];
+  allowlistDomains: string[];
+};
+
+export type UpdateSettingsInput = Partial<{
+  timezone: string;
+  dailyQuota: number;
+  minDelaySeconds: number;
+  sendWindows: SendWindows;
+  signatureDefaultHtml: string | null;
+  allowlistEmails: string[];
+  allowlistDomains: string[];
+}>;
