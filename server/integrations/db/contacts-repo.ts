@@ -480,3 +480,31 @@ export async function listContactsForSnapshot(
 
   return { contacts: result, capped };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marcar contactos como bounced por lista de emails (batch, idempotente)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function setContactsBouncedByEmails(
+  emails: string[]
+): Promise<number> {
+  if (emails.length === 0) return 0;
+
+  const supabase = await createServiceClient();
+
+  // Normalizar emails
+  const normalizedEmails = emails.map((e) => e.toLowerCase().trim());
+
+  // Actualizar solo los que no estén ya como bounced
+  const { data, error } = await supabase
+    .from("contacts")
+    .update({ suppression_status: "bounced" })
+    .in("email", normalizedEmails)
+    .neq("suppression_status", "bounced")
+    .select("id");
+
+  if (error) {
+    throw new Error(`Error al suprimir contactos por bounce: ${error.message}`);
+  }
+
+  return data?.length ?? 0;
+}

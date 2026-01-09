@@ -1,0 +1,146 @@
+import { getFirstGoogleAccount } from "@/server/integrations/db/google-accounts-repo";
+import {
+  hasBounceEventByMessageId,
+  insertBounceEvent,
+} from "@/server/integrations/db/bounce-events-repo";
+import { setContactsBouncedByEmails } from "@/server/integrations/db/contacts-repo";
+import {
+  listBounceMessageIds,
+  processBounceMessage,
+  trashMessage,
+} from "@/server/integrations/gmail/bounces";
+import type { ScanBouncesInput, ScanBouncesResponse } from "@/server/contracts/bounces";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Escanear rebotes en Gmail y suprimir contactos
+// ─────────────────────────────────────────────────────────────────────────────
+export async function scanBounces(
+  input: ScanBouncesInput
+): Promise<ScanBouncesResponse> {
+  // Obtener cuenta de Google (single-tenant)
+  const googleAccount = await getFirstGoogleAccount();
+  if (!googleAccount) {
+    throw new Error(
+      "No hay cuenta de Google conectada. Iniciá sesión con permisos de Gmail."
+    );
+  }
+
+  const result: ScanBouncesResponse = {
+    scanned: 0,
+    created: 0,
+    suppressed: 0,
+    trashed: 0,
+    errors: [],
+  };
+
+  // Listar mensajes de rebote
+  const messageIds = await listBounceMessageIds({
+    googleAccountId: googleAccount.id,
+    maxResults: input.maxResults,
+    newerThanDays: input.newerThanDays,
+  });
+
+  result.scanned = messageIds.length;
+
+  // Procesar cada mensaje
+  const emailsToSuppress: string[] = [];
+
+  for (const messageId of messageIds) {
+    try {
+      // Verificar si ya procesamos este mensaje (idempotencia)
+      const alreadyProcessed = await hasBounceEventByMessageId(messageId);
+      if (alreadyProcessed) {
+        continue;
+      }
+
+      // Procesar mensaje
+      const bounceInfo = await processBounceMessage({
+        googleAccountId: googleAccount.id,
+        messageId,
+      });
+
+      // Solo insertar si pudimos extraer un email
+      if (bounceInfo.bouncedEmail) {
+        await insertBounceEvent({
+          googleAccountId: googleAccount.id,
+          bouncedEmail: bounceInfo.bouncedEmail,
+          reason: bounceInfo.reason,
+          gmailMessageId: messageId,
+          gmailPermalink: bounceInfo.permalink,
+        });
+
+        result.created++;
+        emailsToSuppress.push(bounceInfo.bouncedEmail);
+
+        // Mover a papelera si está habilitado
+        if (input.trashProcessed) {
+          try {
+            await trashMessage({
+              googleAccountId: googleAccount.id,
+              messageId,
+            });
+            result.trashed++;
+          } catch (trashError) {
+            // No fallar todo el proceso por no poder mover a papelera
+            console.warn(
+              `[BounceService] No se pudo mover mensaje ${messageId} a papelera:`,
+              trashError instanceof Error ? trashError.message : trashError
+            );
+          }
+        }
+      } else {
+        // No pudimos extraer email, igual insertamos sin suprimir (para registro)
+        await insertBounceEvent({
+          googleAccountId: googleAccount.id,
+          bouncedEmail: `unknown-${messageId.slice(0, 8)}`,
+          reason: bounceInfo.reason ?? "No se pudo extraer email del mensaje de rebote",
+          gmailMessageId: messageId,
+          gmailPermalink: bounceInfo.permalink,
+        });
+
+        result.created++;
+
+        // Mover a papelera aunque no hayamos podido extraer email
+        if (input.trashProcessed) {
+          try {
+            await trashMessage({
+              googleAccountId: googleAccount.id,
+              messageId,
+            });
+            result.trashed++;
+          } catch {
+            // Ignorar error de trash
+          }
+        }
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Error desconocido";
+      result.errors.push({ messageId, error: errorMessage });
+      console.error(
+        `[BounceService] Error procesando mensaje ${messageId}:`,
+        errorMessage
+      );
+    }
+  }
+
+  // Suprimir contactos en batch
+  if (emailsToSuppress.length > 0) {
+    try {
+      result.suppressed = await setContactsBouncedByEmails(emailsToSuppress);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Error desconocido";
+      console.error(
+        `[BounceService] Error suprimiendo contactos:`,
+        errorMessage
+      );
+      // Agregar como error general pero no fallar
+      result.errors.push({ messageId: "batch-suppress", error: errorMessage });
+    }
+  }
+
+  console.log(
+    `[BounceService] Escaneo completado: ${result.scanned} escaneados, ${result.created} creados, ${result.suppressed} suprimidos, ${result.trashed} movidos a papelera`
+  );
+
+  return result;
+}
