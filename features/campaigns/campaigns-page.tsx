@@ -14,15 +14,11 @@ import {
 import { IconPlus } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { CampaignsTable } from "./campaigns-table";
-import { CampaignDialog } from "./campaign-dialog";
+import { CampaignWizard } from "./campaign-wizard";
 import { fetchCampaigns, createCampaign, deleteCampaign } from "./api";
 import { fetchTemplates } from "@/features/templates/api";
 import type { Campaign, CampaignFilters } from "./types";
-
-type Template = {
-  id: string;
-  name: string;
-};
+import type { Template } from "@/features/templates/types";
 
 export function CampaignsPage() {
   const router = useRouter();
@@ -137,8 +133,8 @@ export function CampaignsPage() {
         onDelete={handleDeleteClick}
       />
 
-      {/* Create Dialog */}
-      <CampaignDialog
+      {/* Create Wizard */}
+      <CampaignWizard
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         templates={templates}

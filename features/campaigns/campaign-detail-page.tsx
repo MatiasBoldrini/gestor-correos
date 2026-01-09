@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +46,9 @@ import {
   IconPlayerStop,
   IconMail,
   IconRefresh,
+  IconClock,
+  IconCalendarEvent,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import {
@@ -63,6 +66,8 @@ import {
   retryCampaign,
 } from "./api";
 import { fetchContacts } from "@/features/contacts/api";
+import { getSettings } from "@/features/settings/api";
+import type { Settings } from "@/features/settings/types";
 import type {
   Campaign,
   CampaignStats,
@@ -136,6 +141,41 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
   const [cancellingCampaign, setCancellingCampaign] = useState(false);
 
   const [previewItem, setPreviewItem] = useState<DraftItem | TestSendEvent | null>(null);
+
+  // Settings for time estimation
+  const [settings, setSettings] = useState<Settings | null>(null);
+
+  // Load settings on mount
+  useEffect(() => {
+    getSettings().then(setSettings).catch(console.error);
+  }, []);
+
+  // Calculate estimated time
+  const estimatedTime = useMemo(() => {
+    if (!settings || !stats || stats.pending === 0) return null;
+
+    const { dailyQuota, minDelaySeconds } = settings;
+    const totalEmails = stats.pending;
+    const emailsPerDay = dailyQuota;
+    const daysNeeded = Math.ceil(totalEmails / emailsPerDay);
+    const secondsPerEmail = minDelaySeconds;
+    const emailsToday = Math.min(totalEmails, emailsPerDay);
+    const todaySeconds = emailsToday * secondsPerEmail;
+    const todayMinutes = Math.ceil(todaySeconds / 60);
+    const todayHours = Math.floor(todayMinutes / 60);
+    const remainingMinutes = todayMinutes % 60;
+
+    return {
+      totalEmails,
+      daysNeeded,
+      todayEmails: emailsToday,
+      todayTime: todayHours > 0 
+        ? `${todayHours}h ${remainingMinutes}min`
+        : `${todayMinutes} min`,
+      emailsPerHour: Math.floor(3600 / secondsPerEmail),
+      dailyQuota,
+    };
+  }, [settings, stats]);
 
   // Load campaign
   const loadCampaign = useCallback(async () => {
@@ -951,17 +991,65 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
 
       {/* Start Campaign Dialog */}
       <Dialog open={startDialogOpen} onOpenChange={setStartDialogOpen}>
-        <DialogContent className="border-slate-800 bg-slate-950 sm:max-w-md">
+        <DialogContent className="border-slate-800 bg-slate-950 sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-white">
+            <DialogTitle className="text-white text-lg">
               {campaign.status === "paused" ? "Reanudar campaña" : "Iniciar campaña"}
             </DialogTitle>
             <DialogDescription className="text-slate-400">
               {campaign.status === "paused"
                 ? "La campaña continuará enviando emails desde donde se pausó."
-                : `Se comenzarán a enviar ${stats?.pending ?? 0} emails programados según las ventanas horarias configuradas.`}
+                : `Se comenzarán a enviar ${stats?.pending ?? 0} emails programados.`}
             </DialogDescription>
           </DialogHeader>
+
+          {/* Time estimation info */}
+          {estimatedTime && (
+            <div className="space-y-4">
+              {/* Summary cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-center">
+                  <p className="text-2xl font-bold text-white">{estimatedTime.totalEmails}</p>
+                  <p className="text-xs text-slate-500">emails</p>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-400">{estimatedTime.todayTime}</p>
+                  <p className="text-xs text-slate-500">tiempo estimado</p>
+                </div>
+                <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-center">
+                  <p className="text-2xl font-bold text-blue-400">{estimatedTime.daysNeeded}</p>
+                  <p className="text-xs text-slate-500">{estimatedTime.daysNeeded === 1 ? 'día' : 'días'}</p>
+                </div>
+              </div>
+
+              {/* Detailed info */}
+              <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+                <div className="flex items-start gap-3">
+                  <IconInfoCircle className="h-5 w-5 text-blue-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1.5 text-sm">
+                    <p className="text-slate-300">Detalles del envío:</p>
+                    <ul className="space-y-1 text-slate-400">
+                      <li className="flex items-center gap-2">
+                        <IconClock className="h-3.5 w-3.5" />
+                        ~{estimatedTime.emailsPerHour} emails/hora
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <IconMail className="h-3.5 w-3.5" />
+                        Cuota diaria: {estimatedTime.dailyQuota} emails
+                      </li>
+                      {estimatedTime.daysNeeded > 1 && (
+                        <li className="flex items-center gap-2 text-amber-300">
+                          <IconCalendarEvent className="h-3.5 w-3.5" />
+                          La campaña tardará {estimatedTime.daysNeeded} días en completarse
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3">
             <p className="text-sm text-green-300">
               ✓ El envío se realizará en background. Podés cerrar el navegador.
