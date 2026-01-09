@@ -43,6 +43,9 @@ export async function requireApiAuth(): Promise<AuthResult> {
     };
   }
 
+  // Asegurar que el perfil exista (puede faltar si la sesión es anterior al callback)
+  await ensureProfileExists(user.id, user.email, user.user_metadata?.full_name);
+
   return {
     success: true,
     user: {
@@ -50,6 +53,27 @@ export async function requireApiAuth(): Promise<AuthResult> {
       email: user.email,
     },
   };
+}
+
+/**
+ * Asegura que el perfil del usuario exista.
+ * Usa upsert para crearlo si no existe.
+ */
+async function ensureProfileExists(
+  userId: string,
+  email: string,
+  displayName?: string
+): Promise<void> {
+  const supabase = await createServiceClient();
+
+  await supabase.from("profiles").upsert(
+    {
+      user_id: userId,
+      email: email,
+      display_name: displayName ?? null,
+    },
+    { onConflict: "user_id" }
+  );
 }
 
 /**
