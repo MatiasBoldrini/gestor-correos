@@ -2,6 +2,8 @@ import {
   getCampaignById,
   createCampaign as createCampaignRepo,
   updateCampaignStatus,
+  acquireCampaignLock,
+  releaseCampaignLock,
 } from "@/server/integrations/db/campaigns-repo";
 import {
   countDraftItems,
@@ -12,28 +14,74 @@ import {
   excludeDraftItem as excludeDraftItemRepo,
   includeDraftItem as includeDraftItemRepo,
   createTestSendEvent,
+  getNextPendingDraftItem,
+  markDraftItemAsSent,
+  markDraftItemAsFailed,
 } from "@/server/integrations/db/draft-items-repo";
 import {
   listContactsForSnapshot,
   getContactById,
 } from "@/server/integrations/db/contacts-repo";
 import { getTemplateById } from "@/server/integrations/db/templates-repo";
+import { getSettings } from "@/server/integrations/db/settings-repo";
+import { getFirstGoogleAccount } from "@/server/integrations/db/google-accounts-repo";
+import {
+  createSendRun,
+  getActiveSendRun,
+  getSendRunById,
+  updateSendRunStatus,
+  updateSendRunNextTick,
+} from "@/server/integrations/db/send-runs-repo";
+import {
+  createSendEventSuccess,
+  createSendEventFailure,
+  countTodaySendEvents,
+} from "@/server/integrations/db/send-events-repo";
 import {
   renderHandlebarsTemplate,
   TemplatingError,
 } from "@/server/domain/templating";
+import { calculateNextTick } from "@/server/domain/scheduler";
+import { createUnsubscribeToken } from "@/server/domain/unsubscribe-token";
+import { sendEmail } from "@/server/integrations/gmail/send";
+import {
+  scheduleSendTick,
+  scheduleSendTickAt,
+} from "@/server/integrations/qstash/client";
 import type {
   CreateCampaignInput,
   CampaignResponse,
   DraftItemResponse,
   TestSendEventResponse,
   CampaignFilters,
+  SendRunResponse,
 } from "@/server/contracts/campaigns";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constantes
 // ─────────────────────────────────────────────────────────────────────────────
-const UNSUBSCRIBE_URL_PLACEHOLDER = "{{UnsubscribeUrl}}";
+function getSiteUrl(): string {
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!siteUrl) {
+    throw new Error(
+      "Falta configurar NEXT_PUBLIC_SITE_URL (necesario para generar links públicos)"
+    );
+  }
+  return siteUrl.replace(/\/+$/, "");
+}
+
+function buildUnsubscribeUrl(input: {
+  contactId: string;
+  email: string;
+  campaignId: string;
+}): string {
+  const token = createUnsubscribeToken({
+    contactId: input.contactId,
+    email: input.email,
+    campaignId: input.campaignId,
+  });
+  return `${getSiteUrl()}/u/${token}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Crear campaña
@@ -127,6 +175,11 @@ export async function generateSnapshot(
 
   for (const contact of contacts) {
     try {
+      const unsubscribeUrl = buildUnsubscribeUrl({
+        contactId: contact.id,
+        email: contact.email,
+        campaignId,
+      });
       const result = renderHandlebarsTemplate(
         {
           subjectTpl: template.subjectTpl,
@@ -136,7 +189,7 @@ export async function generateSnapshot(
           FirstName: contact.firstName,
           LastName: contact.lastName,
           Company: contact.company,
-          UnsubscribeUrl: UNSUBSCRIBE_URL_PLACEHOLDER,
+          UnsubscribeUrl: unsubscribeUrl,
         }
       );
 
@@ -222,6 +275,11 @@ export async function includeContactManually(
   }
 
   // Renderizar
+  const unsubscribeUrl = buildUnsubscribeUrl({
+    contactId: contact.id,
+    email: contact.email,
+    campaignId,
+  });
   const result = renderHandlebarsTemplate(
     {
       subjectTpl: template.subjectTpl,
@@ -231,7 +289,7 @@ export async function includeContactManually(
       FirstName: contact.firstName,
       LastName: contact.lastName,
       Company: contact.company,
-      UnsubscribeUrl: UNSUBSCRIBE_URL_PLACEHOLDER,
+      UnsubscribeUrl: unsubscribeUrl,
     }
   );
 
@@ -303,7 +361,11 @@ export async function sendTestSimulated(
       FirstName: contact.firstName,
       LastName: contact.lastName,
       Company: contact.company,
-      UnsubscribeUrl: "https://example.com/unsubscribe/TEST_TOKEN",
+      UnsubscribeUrl: buildUnsubscribeUrl({
+        contactId: contact.id,
+        email: contact.email,
+        campaignId,
+      }),
     }
   );
 
@@ -315,4 +377,321 @@ export async function sendTestSimulated(
     renderedSubject: result.subject,
     renderedHtml: result.html,
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Iniciar campaña (tomar lock + crear run + programar primer tick)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function startCampaign(campaignId: string): Promise<SendRunResponse> {
+  // Obtener campaña
+  const campaign = await getCampaignById(campaignId);
+  if (!campaign) {
+    throw new Error("Campaña no encontrada");
+  }
+
+  // Verificar estado
+  if (campaign.status !== "ready") {
+    throw new Error(
+      "Solo se pueden iniciar campañas en estado 'ready'. Genera el snapshot primero."
+    );
+  }
+
+  // Verificar que hay drafts pendientes
+  const pendingCount = await countDraftItems(campaignId);
+  if (pendingCount === 0) {
+    throw new Error("No hay emails pendientes para enviar");
+  }
+
+  // Verificar que hay cuenta de Google configurada
+  const googleAccount = await getFirstGoogleAccount();
+  if (!googleAccount) {
+    throw new Error(
+      "No hay cuenta de Google conectada. Iniciá sesión con permisos de Gmail."
+    );
+  }
+
+  // Intentar tomar el lock global
+  const lockAcquired = await acquireCampaignLock(campaignId);
+  if (!lockAcquired) {
+    throw new Error(
+      "Ya hay otra campaña en envío. Solo puede haber una campaña activa a la vez."
+    );
+  }
+
+  try {
+    // Crear send run
+    const sendRun = await createSendRun(campaignId);
+
+    // Actualizar estado de la campaña a sending
+    await updateCampaignStatus(campaignId, "sending");
+
+    // Programar el primer tick inmediatamente (delay 0)
+    await scheduleSendTick({
+      campaignId,
+      sendRunId: sendRun.id,
+      delaySeconds: 0,
+    });
+
+    return sendRun;
+  } catch (err) {
+    // Si algo falla, liberar el lock
+    await releaseCampaignLock(campaignId);
+    throw err;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pausar campaña
+// ─────────────────────────────────────────────────────────────────────────────
+export async function pauseCampaign(campaignId: string): Promise<void> {
+  // Obtener campaña
+  const campaign = await getCampaignById(campaignId);
+  if (!campaign) {
+    throw new Error("Campaña no encontrada");
+  }
+
+  // Verificar estado
+  if (campaign.status !== "sending") {
+    throw new Error("Solo se pueden pausar campañas en envío");
+  }
+
+  // Obtener send run activo
+  const sendRun = await getActiveSendRun(campaignId);
+  if (sendRun) {
+    await updateSendRunStatus(sendRun.id, "paused");
+  }
+
+  // Actualizar estado de la campaña
+  await updateCampaignStatus(campaignId, "paused");
+
+  // Nota: El tick de QStash seguirá ejecutándose, pero verá que
+  // la campaña está pausada y no hará nada
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reanudar campaña pausada
+// ─────────────────────────────────────────────────────────────────────────────
+export async function resumeCampaign(campaignId: string): Promise<void> {
+  // Obtener campaña
+  const campaign = await getCampaignById(campaignId);
+  if (!campaign) {
+    throw new Error("Campaña no encontrada");
+  }
+
+  // Verificar estado
+  if (campaign.status !== "paused") {
+    throw new Error("Solo se pueden reanudar campañas pausadas");
+  }
+
+  // Verificar que tiene el lock
+  if (!campaign.activeLock) {
+    throw new Error("La campaña no tiene el lock activo");
+  }
+
+  // Obtener el send run pausado más reciente
+  const sendRun = await getActiveSendRun(campaignId);
+
+  // Actualizar estado
+  await updateCampaignStatus(campaignId, "sending");
+
+  if (sendRun) {
+    await updateSendRunStatus(sendRun.id, "running");
+
+    // Reprogramar tick
+    await scheduleSendTick({
+      campaignId,
+      sendRunId: sendRun.id,
+      delaySeconds: 0,
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cancelar campaña
+// ─────────────────────────────────────────────────────────────────────────────
+export async function cancelCampaign(campaignId: string): Promise<void> {
+  // Obtener campaña
+  const campaign = await getCampaignById(campaignId);
+  if (!campaign) {
+    throw new Error("Campaña no encontrada");
+  }
+
+  // Verificar estado
+  if (campaign.status !== "sending" && campaign.status !== "paused") {
+    throw new Error("Solo se pueden cancelar campañas en envío o pausadas");
+  }
+
+  // Obtener send run activo
+  const sendRun = await getActiveSendRun(campaignId);
+  if (sendRun) {
+    await updateSendRunStatus(sendRun.id, "cancelled", new Date().toISOString());
+  }
+
+  // Actualizar estado de la campaña
+  await updateCampaignStatus(campaignId, "cancelled");
+
+  // Liberar lock
+  await releaseCampaignLock(campaignId);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Procesar tick de envío (llamado por QStash)
+// ─────────────────────────────────────────────────────────────────────────────
+export type ProcessSendTickResult =
+  | { action: "sent"; draftItemId: string; toEmail: string }
+  | { action: "scheduled"; reason: string; nextTickAt: string }
+  | { action: "completed"; totalSent: number }
+  | { action: "skipped"; reason: string };
+
+export async function processSendTick(
+  campaignId: string,
+  sendRunId: string
+): Promise<ProcessSendTickResult> {
+  // Obtener campaña
+  const campaign = await getCampaignById(campaignId);
+  if (!campaign) {
+    return { action: "skipped", reason: "Campaña no encontrada" };
+  }
+
+  // Verificar que la campaña está en envío
+  if (campaign.status !== "sending") {
+    return {
+      action: "skipped",
+      reason: `Campaña no está en envío (estado: ${campaign.status})`,
+    };
+  }
+
+  // Verificar send run
+  const sendRun = await getSendRunById(sendRunId);
+  if (!sendRun || sendRun.status !== "running") {
+    return {
+      action: "skipped",
+      reason: "Send run no está activo",
+    };
+  }
+
+  // Obtener próximo draft pendiente
+  const draftItem = await getNextPendingDraftItem(campaignId);
+  if (!draftItem) {
+    // No hay más drafts, completar campaña
+    await updateSendRunStatus(sendRunId, "completed", new Date().toISOString());
+    await updateCampaignStatus(campaignId, "completed");
+    await releaseCampaignLock(campaignId);
+
+    // Contar total enviados
+    const stats = await countDraftItems(campaignId);
+
+    return {
+      action: "completed",
+      totalSent: stats,
+    };
+  }
+
+  // Obtener configuración
+  const settings = await getSettings();
+
+  // Contar envíos del día
+  const todaySentCount = await countTodaySendEvents(settings.timezone);
+
+  // Calcular próximo tick
+  const pendingCount = await countDraftItems(campaignId);
+  const nextTick = calculateNextTick(settings, pendingCount, todaySentCount);
+
+  // Si no es inmediato, programar para después
+  if (nextTick.type === "next_window" || nextTick.type === "quota_exceeded") {
+    await updateSendRunNextTick(sendRunId, nextTick.notBefore.toISOString());
+
+    await scheduleSendTickAt({
+      campaignId,
+      sendRunId,
+      notBefore: nextTick.notBefore,
+    });
+
+    return {
+      action: "scheduled",
+      reason: nextTick.reason,
+      nextTickAt: nextTick.notBefore.toISOString(),
+    };
+  }
+
+  // Obtener cuenta de Google
+  const googleAccount = await getFirstGoogleAccount();
+  if (!googleAccount) {
+    // Pausar la campaña si no hay cuenta
+    await pauseCampaign(campaignId);
+    return {
+      action: "skipped",
+      reason: "No hay cuenta de Google conectada",
+    };
+  }
+
+  // Enviar el email
+  try {
+    const sendResult = await sendEmail({
+      googleAccountId: googleAccount.id,
+      to: draftItem.toEmail,
+      subject: draftItem.renderedSubject,
+      html: draftItem.renderedHtml,
+      fromAlias: campaign.fromAlias,
+    });
+
+    // Marcar draft como enviado
+    await markDraftItemAsSent(draftItem.id);
+
+    // Guardar evento de envío
+    await createSendEventSuccess({
+      campaignId,
+      draftItemId: draftItem.id,
+      gmailMessageId: sendResult.messageId,
+      gmailThreadId: sendResult.threadId,
+      gmailPermalink: sendResult.permalink,
+    });
+
+    // Programar siguiente tick
+    const nextTickTime = new Date(Date.now() + nextTick.delaySeconds * 1000);
+    await updateSendRunNextTick(sendRunId, nextTickTime.toISOString());
+
+    await scheduleSendTick({
+      campaignId,
+      sendRunId,
+      delaySeconds: nextTick.delaySeconds,
+    });
+
+    return {
+      action: "sent",
+      draftItemId: draftItem.id,
+      toEmail: draftItem.toEmail,
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "Error desconocido";
+
+    // Marcar draft como fallido
+    await markDraftItemAsFailed(draftItem.id, errorMessage);
+
+    // Guardar evento de fallo
+    await createSendEventFailure({
+      campaignId,
+      draftItemId: draftItem.id,
+      error: errorMessage,
+    });
+
+    // Continuar con el siguiente (programar tick)
+    await scheduleSendTick({
+      campaignId,
+      sendRunId,
+      delaySeconds: settings.minDelaySeconds,
+    });
+
+    // Log del error
+    console.error(
+      `[CampaignService] Error enviando a ${draftItem.toEmail}:`,
+      errorMessage
+    );
+
+    return {
+      action: "sent",
+      draftItemId: draftItem.id,
+      toEmail: draftItem.toEmail,
+    };
+  }
 }

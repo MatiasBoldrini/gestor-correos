@@ -39,6 +39,9 @@ cp env.example .env.local
    - `https://www.googleapis.com/auth/gmail.send`
    - `https://www.googleapis.com/auth/gmail.readonly`
    - `https://www.googleapis.com/auth/gmail.modify`
+6. Copiá el Client ID y Client Secret a las variables de entorno:
+   - `GOOGLE_CLIENT_ID`
+   - `GOOGLE_CLIENT_SECRET`
 
 ### 4. Configurar Provider en Supabase
 
@@ -46,11 +49,20 @@ cp env.example .env.local
 2. Activá el provider y pegá Client ID y Secret
 3. Agregá los scopes adicionales de Gmail
 
-### 5. Ejecutar migraciones
+### 5. Configurar Upstash QStash (para envío programado)
 
-Ejecutá el archivo SQL en `supabase/migrations/001_initial_schema.sql` desde el SQL Editor de Supabase.
+1. Creá una cuenta en [Upstash](https://upstash.com)
+2. Creá un proyecto QStash
+3. Obtené las credenciales:
+   - `QSTASH_TOKEN`
+   - `QSTASH_CURRENT_SIGNING_KEY`
+   - `QSTASH_NEXT_SIGNING_KEY`
 
-### 6. Ejecutar la app
+### 6. Ejecutar migraciones
+
+Ejecutá los archivos SQL en `supabase/migrations/` desde el SQL Editor de Supabase (en orden).
+
+### 7. Ejecutar la app
 
 ```bash
 pnpm install
@@ -77,17 +89,25 @@ lib/
 └── supabase/        # Clientes Supabase
 
 server/
-└── auth/            # Validación de sesión
+├── auth/            # Validación de sesión
+├── contracts/       # Schemas Zod y tipos
+├── domain/          # Lógica de negocio pura (templating, scheduler)
+├── integrations/    # DB repos, Gmail API, QStash
+└── services/        # Casos de uso (CampaignService, etc.)
 
 supabase/
 └── migrations/      # Schema SQL
 ```
 
-## Próximas fases
+## Fases implementadas
 
+- **Fase 1**: Fundación (Next.js + Tailwind + shadcn/ui + Supabase Auth)
 - **Fase 2**: CRUD contactos + tags + segmentación
 - **Fase 3**: Plantillas HTML + preview
 - **Fase 4**: Campañas + snapshot + pruebas
-- **Fase 5**: QStash + SendTick + envío
+- **Fase 5**: QStash + SendTick + envío con Gmail API
+
+## Próximas fases
+
 - **Fase 6**: Unsubscribe público
 - **Fase 7**: Rebotes + supresión

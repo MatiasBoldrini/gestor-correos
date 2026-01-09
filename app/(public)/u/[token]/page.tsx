@@ -8,12 +8,22 @@ type UnsubscribePageProps = {
   }>;
   searchParams: Promise<{
     success?: string;
+    error?: string;
   }>;
 };
 
-export default async function UnsubscribePage({ searchParams }: UnsubscribePageProps) {
-  const { success } = await searchParams;
+export default async function UnsubscribePage({ params, searchParams }: UnsubscribePageProps) {
+  const { token } = await params;
+  const { success, error } = await searchParams;
   const isSuccess = success === "true";
+  const errorMessage =
+    error === "expired_token"
+      ? "Este link de baja expiró."
+      : error === "server_error"
+        ? "No pudimos procesar tu solicitud. Probá de nuevo más tarde."
+        : error
+          ? "Este link de baja no es válido."
+          : null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4">
@@ -45,10 +55,15 @@ export default async function UnsubscribePage({ searchParams }: UnsubscribePageP
               contactanos para reactivar tu suscripción.
             </p>
           ) : (
-            <form action="/api/unsubscribe" method="POST">
+            <form action="/api/unsubscribe" method="POST" className="space-y-3">
+              <input type="hidden" name="token" value={token} />
+              {errorMessage ? (
+                <p className="text-sm text-red-300 text-center">{errorMessage}</p>
+              ) : null}
               <Button
                 type="submit"
                 className="w-full bg-red-600 hover:bg-red-700 text-white"
+                disabled={!!errorMessage}
               >
                 Confirmar cancelación
               </Button>

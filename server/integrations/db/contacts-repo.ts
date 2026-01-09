@@ -221,6 +221,50 @@ export async function getContactById(id: string): Promise<ContactResponse | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Obtener info mínima para unsubscribe (ruta pública)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getContactForUnsubscribe(id: string): Promise<{
+  id: string;
+  email: string;
+  subscriptionStatus: "active" | "unsubscribed";
+} | null> {
+  const supabase = await createServiceClient();
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id, email, subscription_status")
+    .eq("id", id)
+    .single();
+
+  if (error) {
+    if (error.code === "PGRST116") return null;
+    throw new Error(`Error al obtener contacto (unsubscribe): ${error.message}`);
+  }
+
+  return {
+    id: data.id as string,
+    email: data.email as string,
+    subscriptionStatus: data.subscription_status as "active" | "unsubscribed",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marcar un contacto como unsubscribed (idempotente)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function setContactUnsubscribed(id: string): Promise<void> {
+  const supabase = await createServiceClient();
+
+  const { error } = await supabase
+    .from("contacts")
+    .update({ subscription_status: "unsubscribed" })
+    .eq("id", id);
+
+  if (error) {
+    throw new Error(`Error al marcar contacto como unsubscribed: ${error.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Crear contacto
 // ─────────────────────────────────────────────────────────────────────────────
 export async function createContact(

@@ -275,3 +275,69 @@ export async function hasActiveCampaignLock(): Promise<boolean> {
 
   return (count ?? 0) > 0;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tomar lock global para una campaña (solo si no hay otra con lock)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function acquireCampaignLock(campaignId: string): Promise<boolean> {
+  const supabase = await createServiceClient();
+
+  // Verificar que no hay otra campaña con lock
+  const hasLock = await hasActiveCampaignLock();
+  if (hasLock) {
+    return false;
+  }
+
+  // Intentar tomar el lock (solo si no está ya tomado)
+  const { data, error } = await supabase
+    .from("campaigns")
+    .update({ active_lock: true })
+    .eq("id", campaignId)
+    .eq("active_lock", false)
+    .select("id")
+    .single();
+
+  if (error) {
+    if (error.code === "PGRST116") return false;
+    throw new Error(`Error al tomar lock: ${error.message}`);
+  }
+
+  return !!data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Liberar lock de una campaña
+// ─────────────────────────────────────────────────────────────────────────────
+export async function releaseCampaignLock(campaignId: string): Promise<void> {
+  const supabase = await createServiceClient();
+
+  const { error } = await supabase
+    .from("campaigns")
+    .update({ active_lock: false })
+    .eq("id", campaignId);
+
+  if (error) {
+    throw new Error(`Error al liberar lock: ${error.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Obtener campaña con lock activo (si existe)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getLockedCampaign(): Promise<CampaignResponse | null> {
+  const supabase = await createServiceClient();
+
+  const { data, error } = await supabase
+    .from("campaigns")
+    .select("*, templates(name)")
+    .eq("active_lock", true)
+    .single();
+
+  if (error) {
+    if (error.code === "PGRST116") return null;
+    throw new Error(`Error al obtener campaña bloqueada: ${error.message}`);
+  }
+
+  const campaign = data as DbCampaignWithTemplate;
+  return mapCampaign(campaign, campaign.templates?.name ?? null);
+}

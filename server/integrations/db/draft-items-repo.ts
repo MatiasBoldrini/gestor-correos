@@ -369,3 +369,64 @@ export async function listTestSendEvents(
 
   return (data as DbTestSendEvent[]).map(mapTestSendEvent);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Obtener el próximo draft item pendiente de una campaña
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getNextPendingDraftItem(
+  campaignId: string
+): Promise<DraftItemResponse | null> {
+  const supabase = await createServiceClient();
+
+  const { data, error } = await supabase
+    .from("draft_items")
+    .select("*")
+    .eq("campaign_id", campaignId)
+    .eq("state", "pending")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .single();
+
+  if (error) {
+    if (error.code === "PGRST116") return null;
+    throw new Error(`Error al obtener draft item pendiente: ${error.message}`);
+  }
+
+  return mapDraftItem(data as DbDraftItem);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marcar draft item como enviado
+// ─────────────────────────────────────────────────────────────────────────────
+export async function markDraftItemAsSent(id: string): Promise<void> {
+  const supabase = await createServiceClient();
+
+  const { error } = await supabase
+    .from("draft_items")
+    .update({ state: "sent" })
+    .eq("id", id)
+    .eq("state", "pending"); // Solo si está pending (idempotencia)
+
+  if (error) {
+    throw new Error(`Error al marcar draft item como enviado: ${error.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Marcar draft item como fallido
+// ─────────────────────────────────────────────────────────────────────────────
+export async function markDraftItemAsFailed(
+  id: string,
+  errorMessage: string
+): Promise<void> {
+  const supabase = await createServiceClient();
+
+  const { error } = await supabase
+    .from("draft_items")
+    .update({ state: "failed", error: errorMessage })
+    .eq("id", id);
+
+  if (error) {
+    throw new Error(`Error al marcar draft item como fallido: ${error.message}`);
+  }
+}

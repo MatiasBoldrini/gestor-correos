@@ -210,3 +210,59 @@ export type DraftItemsListResponse = {
 export type TestSendEventsListResponse = {
   testSendEvents: TestSendEventResponse[];
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Estados de send run (debe coincidir con el enum de la DB)
+// ─────────────────────────────────────────────────────────────────────────────
+export const sendRunStatusEnum = z.enum([
+  "running",
+  "paused",
+  "completed",
+  "cancelled",
+]);
+
+export type SendRunStatus = z.infer<typeof sendRunStatusEnum>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Estados de send event (debe coincidir con el enum de la DB)
+// ─────────────────────────────────────────────────────────────────────────────
+export const sendEventStatusEnum = z.enum(["sent", "failed"]);
+
+export type SendEventStatus = z.infer<typeof sendEventStatusEnum>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payload del tick de QStash
+// ─────────────────────────────────────────────────────────────────────────────
+export const sendTickPayloadSchema = z.object({
+  campaignId: z.string().uuid(),
+  sendRunId: z.string().uuid(),
+});
+
+export type SendTickPayload = z.infer<typeof sendTickPayloadSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Respuesta de send run (para el cliente)
+// ─────────────────────────────────────────────────────────────────────────────
+export type SendRunResponse = {
+  id: string;
+  campaignId: string;
+  status: SendRunStatus;
+  startedAt: string;
+  endedAt: string | null;
+  nextTickAt: string | null;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Respuesta de send event (para el cliente)
+// ─────────────────────────────────────────────────────────────────────────────
+export type SendEventResponse = {
+  id: string;
+  campaignId: string;
+  draftItemId: string;
+  sentAt: string;
+  gmailMessageId: string | null;
+  gmailThreadId: string | null;
+  gmailPermalink: string | null;
+  status: SendEventStatus;
+  error: string | null;
+};
