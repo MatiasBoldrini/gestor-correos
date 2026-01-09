@@ -346,3 +346,93 @@ export async function deleteContact(id: string): Promise<void> {
     throw new Error(`Error al borrar contacto: ${error.message}`);
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Listar todos los contactos del segmento (para snapshot, sin paginación, con cap)
+// ─────────────────────────────────────────────────────────────────────────────
+export type SnapshotContact = {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  company: string | null;
+};
+
+export type SnapshotFilters = {
+  query?: string;
+  company?: string;
+  position?: string;
+  tagIds?: string[];
+};
+
+const SNAPSHOT_CAP = 20000;
+
+export async function listContactsForSnapshot(
+  filters: SnapshotFilters
+): Promise<{ contacts: SnapshotContact[]; capped: boolean }> {
+  const supabase = await createServiceClient();
+
+  // Base query - solo contactos activos y no suprimidos
+  let query = supabase
+    .from("contacts")
+    .select("id, email, first_name, last_name, company")
+    .eq("subscription_status", "active")
+    .eq("suppression_status", "none");
+
+  // Filtro texto
+  if (filters.query) {
+    const pattern = `%${filters.query}%`;
+    query = query.or(
+      `email.ilike.${pattern},first_name.ilike.${pattern},last_name.ilike.${pattern}`
+    );
+  }
+
+  // Filtro company
+  if (filters.company) {
+    query = query.ilike("company", `%${filters.company}%`);
+  }
+
+  // Filtro position
+  if (filters.position) {
+    query = query.ilike("position", `%${filters.position}%`);
+  }
+
+  // Filtro por tags (AND estricto)
+  if (filters.tagIds && filters.tagIds.length > 0) {
+    const contactIdsWithAllTags = await getContactIdsWithAllTags(filters.tagIds);
+    if (contactIdsWithAllTags.length === 0) {
+      return { contacts: [], capped: false };
+    }
+    query = query.in("id", contactIdsWithAllTags);
+  }
+
+  // Aplicar cap + 1 para detectar si excede
+  query = query.order("created_at", { ascending: true }).limit(SNAPSHOT_CAP + 1);
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(`Error al listar contactos para snapshot: ${error.message}`);
+  }
+
+  const contacts = data as Array<{
+    id: string;
+    email: string;
+    first_name: string | null;
+    last_name: string | null;
+    company: string | null;
+  }>;
+
+  const capped = contacts.length > SNAPSHOT_CAP;
+  const result = (capped ? contacts.slice(0, SNAPSHOT_CAP) : contacts).map(
+    (c) => ({
+      id: c.id,
+      email: c.email,
+      firstName: c.first_name,
+      lastName: c.last_name,
+      company: c.company,
+    })
+  );
+
+  return { contacts: result, capped };
+}
