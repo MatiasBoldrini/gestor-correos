@@ -7,7 +7,7 @@ import {
   deleteCampaignSchema,
 } from "@/server/contracts/campaigns";
 import {
-  listCampaigns,
+  listCampaignsWithStats,
   updateCampaign,
   deleteCampaign,
   getCampaignById,
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const campaigns = await listCampaigns(parsed.data);
+    const campaigns = await listCampaignsWithStats(parsed.data);
     return NextResponse.json({ campaigns });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";

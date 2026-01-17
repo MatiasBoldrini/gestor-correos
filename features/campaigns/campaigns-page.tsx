@@ -17,14 +17,15 @@ import { CampaignsTable } from "./campaigns-table";
 import { CampaignWizard } from "./campaign-wizard";
 import { fetchCampaigns, createCampaign, deleteCampaign } from "./api";
 import { fetchTemplates } from "@/features/templates/api";
-import type { Campaign, CampaignFilters } from "./types";
+import type { Campaign, CampaignFilters, CampaignStatus, CampaignWithStats } from "./types";
 import type { Template } from "@/features/templates/types";
 
 export function CampaignsPage() {
   const router = useRouter();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignWithStats[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<CampaignStatus | "all">("all");
 
   // Dialog states
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -56,6 +57,15 @@ export function CampaignsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Auto-refresh if there are sending campaigns
+  useEffect(() => {
+    const hasSending = campaigns.some(c => c.status === "sending");
+    if (hasSending) {
+      const interval = setInterval(loadData, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [campaigns, loadData]);
 
   const handleCreate = () => {
     if (templates.length === 0) {
@@ -109,12 +119,23 @@ export function CampaignsPage() {
     }
   };
 
+  // Count sending campaigns for header badge
+  const sendingCount = campaigns.filter(c => c.status === "sending").length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Campañas</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-white">Campañas</h1>
+            {sendingCount > 0 && (
+              <span className="flex items-center gap-1.5 rounded-full bg-green-600/20 px-3 py-1 text-sm font-medium text-green-400">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-green-400" />
+                {sendingCount} enviando
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-slate-400">
             Gestiona y monitorea tus campañas de email
           </p>
@@ -131,6 +152,8 @@ export function CampaignsPage() {
         loading={loading}
         onView={handleView}
         onDelete={handleDeleteClick}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
       />
 
       {/* Create Wizard */}
@@ -155,6 +178,13 @@ export function CampaignsPage() {
               ? Esta acción no se puede deshacer.
             </DialogDescription>
           </DialogHeader>
+          {deletingCampaign?.status === "sending" && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+              <p className="text-sm text-amber-300">
+                ⚠️ Esta campaña está enviando. Al eliminarla se detendrá el envío.
+              </p>
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button
               variant="ghost"

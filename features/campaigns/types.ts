@@ -65,9 +65,14 @@ export type TestSendEvent = {
   createdAt: string;
 };
 
+// Campaign with stats (for list view)
+export type CampaignWithStats = Campaign & {
+  stats: CampaignStats;
+};
+
 // Responses
 export type CampaignsListResponse = {
-  campaigns: Campaign[];
+  campaigns: CampaignWithStats[];
 };
 
 export type CampaignDetailResponse = {

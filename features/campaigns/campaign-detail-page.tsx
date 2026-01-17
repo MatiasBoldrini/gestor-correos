@@ -49,6 +49,14 @@ import {
   IconClock,
   IconCalendarEvent,
   IconInfoCircle,
+  IconTemplate,
+  IconUsers,
+  IconAlertTriangle,
+  IconCircleCheck,
+  IconCircleDashed,
+  IconCopy,
+  IconExternalLink,
+  IconCode,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import {
@@ -57,7 +65,6 @@ import {
   fetchDraftItems,
   updateDraftItem,
   includeContactManually,
-  sendTestSimulated,
   sendTestReal,
   fetchTestSendEvents,
   startCampaign,
@@ -100,6 +107,84 @@ type CampaignDetailPageProps = {
   campaignId: string;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stepper Step Component
+// ─────────────────────────────────────────────────────────────────────────────
+type StepStatus = "complete" | "current" | "warning" | "pending";
+
+function StepIndicator({
+  label,
+  status,
+  description,
+  icon: Icon,
+}: {
+  label: string;
+  status: StepStatus;
+  description?: string;
+  icon: typeof IconTemplate;
+}) {
+  const styles: Record<StepStatus, { bg: string; icon: string; text: string }> = {
+    complete: {
+      bg: "bg-green-600",
+      icon: "text-white",
+      text: "text-green-400",
+    },
+    current: {
+      bg: "bg-blue-600",
+      icon: "text-white",
+      text: "text-blue-400",
+    },
+    warning: {
+      bg: "bg-amber-600",
+      icon: "text-white",
+      text: "text-amber-400",
+    },
+    pending: {
+      bg: "bg-slate-700",
+      icon: "text-slate-400",
+      text: "text-slate-400",
+    },
+  };
+
+  const s = styles[status];
+
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${s.bg}`}
+      >
+        {status === "complete" ? (
+          <IconCircleCheck className={`h-5 w-5 ${s.icon}`} />
+        ) : status === "warning" ? (
+          <IconAlertTriangle className={`h-5 w-5 ${s.icon}`} />
+        ) : (
+          <Icon className={`h-5 w-5 ${s.icon}`} />
+        )}
+      </div>
+      <div className="min-w-0">
+        <p className={`font-medium ${s.text}`}>{label}</p>
+        {description && (
+          <p className="text-xs text-slate-500 truncate">{description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Draft State Tabs
+// ─────────────────────────────────────────────────────────────────────────────
+const DRAFT_TABS: { id: DraftItemState | "all"; label: string }[] = [
+  { id: "all", label: "Todos" },
+  { id: "pending", label: "Pendientes" },
+  { id: "sent", label: "Enviados" },
+  { id: "failed", label: "Fallidos" },
+  { id: "excluded", label: "Excluidos" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────────────────────
 export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
   const router = useRouter();
 
@@ -114,6 +199,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
   const [draftsOffset, setDraftsOffset] = useState(0);
   const [draftsQuery, setDraftsQuery] = useState("");
   const [draftsLoading, setDraftsLoading] = useState(false);
+  const [draftsStateFilter, setDraftsStateFilter] = useState<DraftItemState | "all">("all");
 
   // Test events
   const [testEvents, setTestEvents] = useState<TestSendEvent[]>([]);
@@ -198,6 +284,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
     try {
       const data = await fetchDraftItems(campaignId, {
         query: draftsQuery || undefined,
+        state: draftsStateFilter === "all" ? undefined : draftsStateFilter,
         limit: PAGE_SIZE,
         offset: draftsOffset,
       });
@@ -208,7 +295,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
     } finally {
       setDraftsLoading(false);
     }
-  }, [campaignId, draftsQuery, draftsOffset]);
+  }, [campaignId, draftsQuery, draftsOffset, draftsStateFilter]);
 
   // Load test events
   const loadTestEvents = useCallback(async () => {
@@ -230,6 +317,22 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
       loadDrafts();
     }
   }, [campaign, stats, loadDrafts]);
+
+  // Reset offset when filter changes
+  useEffect(() => {
+    setDraftsOffset(0);
+  }, [draftsStateFilter, draftsQuery]);
+
+  // Auto-refresh for sending campaigns
+  useEffect(() => {
+    if (campaign?.status === "sending") {
+      const interval = setInterval(() => {
+        loadCampaign();
+        loadDrafts();
+      }, 10000); // Refresh every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [campaign?.status, loadCampaign, loadDrafts]);
 
   // Search contacts for include
   useEffect(() => {
@@ -253,8 +356,104 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
     return () => clearTimeout(timer);
   }, [contactSearch, includeDialogOpen]);
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Readiness checks
+  // ─────────────────────────────────────────────────────────────────────────────
+  const readinessChecks = useMemo(() => {
+    if (!campaign || !stats) return [];
 
+    const checks: {
+      label: string;
+      status: "ok" | "warning" | "error";
+      message: string;
+      action?: { label: string; onClick: () => void };
+    }[] = [];
+
+    // Template check
+    if (campaign.templateId) {
+      checks.push({
+        label: "Plantilla",
+        status: "ok",
+        message: campaign.templateName ?? "Plantilla asignada",
+      });
+    } else {
+      checks.push({
+        label: "Plantilla",
+        status: "error",
+        message: "No hay plantilla asignada",
+      });
+    }
+
+    // Snapshot check
+    if (stats.totalDrafts > 0) {
+      checks.push({
+        label: "Snapshot",
+        status: "ok",
+        message: `${stats.totalDrafts} borradores generados`,
+      });
+    } else if (campaign.status === "draft") {
+      checks.push({
+        label: "Snapshot",
+        status: "warning",
+        message: "Generá el snapshot para ver destinatarios",
+        action: {
+          label: "Generar",
+          onClick: () => setSnapshotDialogOpen(true),
+        },
+      });
+    }
+
+    // Pending emails check
+    if (stats.pending > 0) {
+      checks.push({
+        label: "Destinatarios",
+        status: "ok",
+        message: `${stats.pending} emails pendientes`,
+      });
+    } else if (stats.totalDrafts > 0 && stats.pending === 0) {
+      checks.push({
+        label: "Destinatarios",
+        status: "error",
+        message: "No hay emails pendientes para enviar",
+        action: {
+          label: "Incluir contacto",
+          onClick: () => setIncludeDialogOpen(true),
+        },
+      });
+    }
+
+    // Test send check
+    if (testEvents.length > 0) {
+      checks.push({
+        label: "Prueba",
+        status: "ok",
+        message: `${testEvents.length} prueba(s) enviada(s)`,
+      });
+    } else {
+      checks.push({
+        label: "Prueba",
+        status: "warning",
+        message: "Recomendamos enviar una prueba antes",
+        action: {
+          label: "Enviar prueba",
+          onClick: () => setTestSendDialogOpen(true),
+        },
+      });
+    }
+
+    return checks;
+  }, [campaign, stats, testEvents.length]);
+
+  const canStartCampaign = useMemo(() => {
+    if (!campaign || !stats) return false;
+    if (campaign.status !== "ready") return false;
+    if (stats.pending === 0) return false;
+    return readinessChecks.every((c) => c.status !== "error");
+  }, [campaign, stats, readinessChecks]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // Handlers
+  // ─────────────────────────────────────────────────────────────────────────────
   const handleGenerateSnapshot = async () => {
     setSnapshotLoading(true);
     try {
@@ -382,9 +581,35 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
     }
   };
 
+  const handleCopyHtml = () => {
+    if (previewItem?.renderedHtml) {
+      navigator.clipboard.writeText(previewItem.renderedHtml);
+      toast.success("HTML copiado al portapapeles");
+    }
+  };
+
+  const handleCopySubject = () => {
+    if (previewItem?.renderedSubject) {
+      navigator.clipboard.writeText(previewItem.renderedSubject);
+      toast.success("Asunto copiado al portapapeles");
+    }
+  };
+
+  const handleOpenInNewTab = () => {
+    if (previewItem?.renderedHtml) {
+      const blob = new Blob([previewItem.renderedHtml], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    }
+  };
+
   // Pagination
   const currentPage = Math.floor(draftsOffset / PAGE_SIZE) + 1;
   const totalPages = Math.ceil(draftsTotal / PAGE_SIZE);
+
+  // Check if actions are allowed based on status
+  const canModifyDrafts = campaign?.status === "draft" || campaign?.status === "ready";
+  const isFinalState = campaign?.status === "completed" || campaign?.status === "cancelled";
 
   if (loading) {
     return (
@@ -397,6 +622,34 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
   if (!campaign) {
     return null;
   }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Step Status Calculation
+  // ─────────────────────────────────────────────────────────────────────────────
+  const getStepStatus = (step: "template" | "audience" | "snapshot" | "test" | "send"): StepStatus => {
+    switch (step) {
+      case "template":
+        return campaign.templateId ? "complete" : "warning";
+      case "audience":
+        if (stats?.totalDrafts && stats.totalDrafts > 0) return "complete";
+        return campaign.templateId ? "pending" : "pending";
+      case "snapshot":
+        if (stats?.totalDrafts && stats.totalDrafts > 0) {
+          return stats.pending > 0 ? "complete" : "warning";
+        }
+        return "pending";
+      case "test":
+        if (testEvents.length > 0) return "complete";
+        if (campaign.status === "ready" || campaign.status === "sending") return "warning";
+        return "pending";
+      case "send":
+        if (campaign.status === "completed") return "complete";
+        if (campaign.status === "sending") return "current";
+        if (campaign.status === "paused") return "warning";
+        if (campaign.status === "cancelled") return "warning";
+        return "pending";
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -416,11 +669,20 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
               <h1 className="text-2xl font-bold text-white">{campaign.name}</h1>
               <Badge
                 variant={
-                  campaign.status === "ready"
-                    ? "secondary"
+                  campaign.status === "completed"
+                    ? "default"
                     : campaign.status === "sending"
                       ? "default"
-                      : "outline"
+                      : campaign.status === "cancelled"
+                        ? "destructive"
+                        : "secondary"
+                }
+                className={
+                  campaign.status === "sending"
+                    ? "animate-pulse bg-green-600"
+                    : campaign.status === "completed"
+                      ? "bg-green-600"
+                      : ""
                 }
               >
                 {STATUS_LABELS[campaign.status]}
@@ -433,16 +695,19 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
           </div>
         </div>
 
+        {/* Action Buttons */}
         <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setTestSendDialogOpen(true)}
-            className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
-          >
-            <IconMail className="mr-2 h-4 w-4" />
-            Enviar prueba real
-          </Button>
+          {!isFinalState && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setTestSendDialogOpen(true)}
+              className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+            >
+              <IconMail className="mr-2 h-4 w-4" />
+              Enviar prueba
+            </Button>
+          )}
           
           {campaign.status === "draft" && (
             <Button
@@ -462,14 +727,15 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
                 className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
               >
                 <IconCamera className="mr-2 h-4 w-4" />
-                Regenerar snapshot
+                Regenerar
               </Button>
               <Button
                 onClick={() => setStartDialogOpen(true)}
-                className="bg-green-600 hover:bg-green-700"
+                disabled={!canStartCampaign}
+                className="bg-green-600 hover:bg-green-700 disabled:opacity-50"
               >
                 <IconPlayerPlay className="mr-2 h-4 w-4" />
-                Iniciar campaña
+                Iniciar envío
               </Button>
             </>
           )}
@@ -536,8 +802,180 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
         </div>
       </div>
 
-      {/* Stats */}
-      {stats && stats.totalDrafts > 0 && (
+      {/* Stepper - Always visible */}
+      <Card className="border-slate-800 bg-slate-900/50">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between gap-4">
+            <StepIndicator
+              label="Plantilla"
+              status={getStepStatus("template")}
+              description={campaign.templateName ?? undefined}
+              icon={IconTemplate}
+            />
+            <div className="h-0.5 flex-1 bg-slate-700" />
+            <StepIndicator
+              label="Audiencia"
+              status={getStepStatus("audience")}
+              description={
+                stats?.totalDrafts
+                  ? `${stats.totalDrafts} contactos`
+                  : undefined
+              }
+              icon={IconUsers}
+            />
+            <div className="h-0.5 flex-1 bg-slate-700" />
+            <StepIndicator
+              label="Snapshot"
+              status={getStepStatus("snapshot")}
+              description={
+                stats?.pending
+                  ? `${stats.pending} pendientes`
+                  : stats?.totalDrafts
+                    ? "Sin pendientes"
+                    : undefined
+              }
+              icon={IconCamera}
+            />
+            <div className="h-0.5 flex-1 bg-slate-700" />
+            <StepIndicator
+              label="Prueba"
+              status={getStepStatus("test")}
+              description={
+                testEvents.length > 0
+                  ? `${testEvents.length} enviada(s)`
+                  : undefined
+              }
+              icon={IconMail}
+            />
+            <div className="h-0.5 flex-1 bg-slate-700" />
+            <StepIndicator
+              label="Envío"
+              status={getStepStatus("send")}
+              description={
+                campaign.status === "completed"
+                  ? `${stats?.sent ?? 0} enviados`
+                  : campaign.status === "sending"
+                    ? "En progreso..."
+                    : undefined
+              }
+              icon={IconSend}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Sending Status Panel - Only when sending */}
+      {campaign.status === "sending" && stats && (
+        <Card className="border-green-600/30 bg-green-600/5">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <IconSend className="h-5 w-5 text-green-400" />
+                <span className="absolute -right-1 -top-1 h-2 w-2 animate-ping rounded-full bg-green-400" />
+              </div>
+              <CardTitle className="text-lg text-green-400">
+                Envío en progreso
+              </CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-4">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-white">{stats.sent}</p>
+                <p className="text-xs text-slate-400">Enviados</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold text-amber-400">{stats.pending}</p>
+                <p className="text-xs text-slate-400">Pendientes</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold text-red-400">{stats.failed}</p>
+                <p className="text-xs text-slate-400">Fallidos</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold text-blue-400">
+                  {stats.totalDrafts > 0
+                    ? Math.round((stats.sent / stats.totalDrafts) * 100)
+                    : 0}%
+                </p>
+                <p className="text-xs text-slate-400">Progreso</p>
+              </div>
+            </div>
+            {estimatedTime && stats.pending > 0 && (
+              <div className="mt-4 flex items-center justify-center gap-6 rounded-lg border border-slate-700 bg-slate-900/50 p-3 text-sm">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <IconClock className="h-4 w-4" />
+                  ~{estimatedTime.emailsPerHour} emails/hora
+                </div>
+                <div className="flex items-center gap-2 text-slate-400">
+                  <IconCalendarEvent className="h-4 w-4" />
+                  Tiempo restante: ~{estimatedTime.todayTime}
+                </div>
+              </div>
+            )}
+            <p className="mt-3 text-center text-xs text-slate-500">
+              Se actualiza automáticamente cada 10 segundos
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Readiness Panel - Only for ready campaigns */}
+      {campaign.status === "ready" && (
+        <Card className="border-slate-800 bg-slate-900/50">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-white">
+              <IconCircleDashed className="h-5 w-5" />
+              Verificación antes de enviar
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {readinessChecks.map((check, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/50 px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    {check.status === "ok" ? (
+                      <IconCircleCheck className="h-5 w-5 text-green-400" />
+                    ) : check.status === "warning" ? (
+                      <IconAlertTriangle className="h-5 w-5 text-amber-400" />
+                    ) : (
+                      <IconX className="h-5 w-5 text-red-400" />
+                    )}
+                    <div>
+                      <p className="font-medium text-slate-200">{check.label}</p>
+                      <p className="text-sm text-slate-500">{check.message}</p>
+                    </div>
+                  </div>
+                  {check.action && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={check.action.onClick}
+                      className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+                    >
+                      {check.action.label}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {!canStartCampaign && (
+              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+                <p className="text-sm text-red-300">
+                  <IconAlertTriangle className="mr-2 inline h-4 w-4" />
+                  Resolvé los problemas marcados antes de iniciar el envío.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stats - Compact view for non-sending states */}
+      {stats && stats.totalDrafts > 0 && campaign.status !== "sending" && (
         <div className="grid gap-4 sm:grid-cols-4">
           <Card className="border-slate-800 bg-slate-900/50">
             <CardHeader className="pb-2">
@@ -586,40 +1024,76 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
       {stats && stats.totalDrafts > 0 && (
         <Card className="border-slate-800 bg-slate-900/50">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-white">
-                Borradores ({draftsTotal})
+                Destinatarios
               </CardTitle>
-              <div className="flex gap-2">
-                <div className="relative">
-                  <IconSearch className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <Input
-                    placeholder="Buscar por email..."
-                    value={draftsQuery}
-                    onChange={(e) => {
-                      setDraftsQuery(e.target.value);
-                      setDraftsOffset(0);
-                    }}
-                    className="w-64 border-slate-700 bg-slate-900 pl-9 text-slate-200"
-                  />
+              <div className="flex flex-wrap gap-2">
+                {/* State Filter Tabs */}
+                <div className="flex rounded-lg border border-slate-700 bg-slate-900 p-1">
+                  {DRAFT_TABS.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setDraftsStateFilter(tab.id)}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                        draftsStateFilter === tab.id
+                          ? "bg-slate-700 text-white"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      {tab.label}
+                      {tab.id !== "all" && stats && (
+                        <span className="ml-1.5 text-xs opacity-60">
+                          ({tab.id === "pending"
+                            ? stats.pending
+                            : tab.id === "sent"
+                              ? stats.sent
+                              : tab.id === "failed"
+                                ? stats.failed
+                                : stats.excluded}
+                          )
+                        </span>
+                      )}
+                    </button>
+                  ))}
                 </div>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <div className="relative flex-1">
+                <IconSearch className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <Input
+                  placeholder="Buscar por email..."
+                  value={draftsQuery}
+                  onChange={(e) => setDraftsQuery(e.target.value)}
+                  className="border-slate-700 bg-slate-900 pl-9 text-slate-200"
+                />
+              </div>
+              {canModifyDrafts && (
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
                   onClick={() => setIncludeDialogOpen(true)}
                   className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
                 >
                   <IconUserPlus className="mr-2 h-4 w-4" />
                   Incluir contacto
                 </Button>
-              </div>
+              )}
             </div>
           </CardHeader>
           <CardContent>
             {draftsLoading ? (
               <div className="flex items-center justify-center py-8">
                 <IconLoader2 className="h-6 w-6 animate-spin text-slate-400" />
+              </div>
+            ) : draftItems.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-slate-500">
+                  {draftsQuery || draftsStateFilter !== "all"
+                    ? "No hay resultados para esta búsqueda"
+                    : "No hay destinatarios"}
+                </p>
               </div>
             ) : (
               <>
@@ -664,10 +1138,20 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
                                       ? "outline"
                                       : "destructive"
                               }
-                              className="text-xs"
+                              className={`text-xs ${
+                                item.state === "sent" ? "bg-green-600" : ""
+                              }`}
                             >
                               {DRAFT_STATE_LABELS[item.state]}
                             </Badge>
+                            {item.error && (
+                              <span
+                                className="ml-2 text-xs text-red-400"
+                                title={item.error}
+                              >
+                                ⚠️
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <DropdownMenu>
@@ -691,7 +1175,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
                                   <IconEye className="mr-2 h-4 w-4" />
                                   Ver preview
                                 </DropdownMenuItem>
-                                {item.state === "excluded" ? (
+                                {canModifyDrafts && item.state === "excluded" && (
                                   <DropdownMenuItem
                                     onClick={() => handleInclude(item)}
                                     className="cursor-pointer text-green-400 focus:bg-green-500/10 focus:text-green-400"
@@ -699,7 +1183,8 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
                                     <IconCheck className="mr-2 h-4 w-4" />
                                     Incluir
                                   </DropdownMenuItem>
-                                ) : item.state === "pending" ? (
+                                )}
+                                {canModifyDrafts && item.state === "pending" && (
                                   <DropdownMenuItem
                                     onClick={() => handleExclude(item)}
                                     className="cursor-pointer text-red-400 focus:bg-red-500/10 focus:text-red-400"
@@ -707,7 +1192,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
                                     <IconX className="mr-2 h-4 w-4" />
                                     Excluir
                                   </DropdownMenuItem>
-                                ) : null}
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -838,7 +1323,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
                 className="text-sm text-amber-200"
               >
                 Confirmo que quiero eliminar los {stats.totalDrafts} borradores
-                existentes
+                existentes y regenerar
               </label>
             </div>
           ) : null}
@@ -1096,10 +1581,22 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
               Los emails pendientes no se enviarán.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
-            <p className="text-sm text-red-300">
-              ⚠️ Esta acción no se puede deshacer. Los emails ya enviados no se verán afectados.
-            </p>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+              <p className="text-sm text-red-300">
+                ⚠️ Esta acción no se puede deshacer. Los emails ya enviados no se verán afectados.
+              </p>
+            </div>
+            {stats && stats.pending > 0 && (
+              <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+                <p className="text-sm text-slate-300">
+                  <strong>{stats.pending}</strong> emails pendientes no se enviarán.
+                </p>
+                <p className="text-sm text-slate-300">
+                  <strong>{stats.sent}</strong> emails ya fueron enviados.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button
@@ -1130,9 +1627,9 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Preview Dialog */}
+      {/* Preview Dialog - Enhanced */}
       <Dialog open={!!previewItem} onOpenChange={() => setPreviewItem(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto border-slate-800 bg-slate-950 sm:max-w-2xl">
+        <DialogContent className="max-h-[90vh] overflow-y-auto border-slate-800 bg-slate-950 sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle className="text-white">Preview del email</DialogTitle>
             <DialogDescription className="text-slate-400">
@@ -1140,18 +1637,52 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Subject with copy button */}
             <div>
-              <p className="mb-1 text-xs font-medium text-slate-400">Asunto</p>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-xs font-medium text-slate-400">Asunto</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCopySubject}
+                  className="h-7 px-2 text-slate-400 hover:text-white"
+                >
+                  <IconCopy className="mr-1 h-3 w-3" />
+                  Copiar
+                </Button>
+              </div>
               <p className="rounded border border-slate-800 bg-slate-900 px-3 py-2 text-slate-200">
                 {previewItem?.renderedSubject}
               </p>
             </div>
+            
+            {/* Content with action buttons */}
             <div>
-              <p className="mb-1 text-xs font-medium text-slate-400">
-                Contenido
-              </p>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-xs font-medium text-slate-400">Contenido</p>
+                <div className="flex gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCopyHtml}
+                    className="h-7 px-2 text-slate-400 hover:text-white"
+                  >
+                    <IconCode className="mr-1 h-3 w-3" />
+                    HTML
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleOpenInNewTab}
+                    className="h-7 px-2 text-slate-400 hover:text-white"
+                  >
+                    <IconExternalLink className="mr-1 h-3 w-3" />
+                    Nueva pestaña
+                  </Button>
+                </div>
+              </div>
               <div
-                className="max-h-96 overflow-y-auto rounded border border-slate-800 bg-white p-4"
+                className="max-h-[50vh] overflow-y-auto rounded border border-slate-800 bg-white p-4"
                 dangerouslySetInnerHTML={{
                   __html: previewItem?.renderedHtml ?? "",
                 }}

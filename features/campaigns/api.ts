@@ -1,5 +1,6 @@
 import type {
   Campaign,
+  CampaignWithStats,
   CampaignsListResponse,
   CampaignDetailResponse,
   DraftItem,
@@ -15,9 +16,9 @@ import type {
 const API_BASE = "/api";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Listar campañas
+// Listar campañas (con stats)
 // ─────────────────────────────────────────────────────────────────────────────
-export async function fetchCampaigns(query?: string): Promise<Campaign[]> {
+export async function fetchCampaigns(query?: string): Promise<CampaignWithStats[]> {
   const params = query ? `?query=${encodeURIComponent(query)}` : "";
   const res = await fetch(`${API_BASE}/campaigns${params}`);
   if (!res.ok) {

@@ -86,6 +86,95 @@ export async function listCampaigns(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Listar campañas con estadísticas
+// ─────────────────────────────────────────────────────────────────────────────
+export type CampaignWithStatsResponse = CampaignResponse & {
+  stats: CampaignStatsResponse;
+};
+
+export async function listCampaignsWithStats(
+  filters?: ListCampaignsFilters
+): Promise<CampaignWithStatsResponse[]> {
+  const supabase = await createServiceClient();
+
+  let query = supabase
+    .from("campaigns")
+    .select("*, templates(name)")
+    .order("created_at", { ascending: false });
+
+  if (filters?.query) {
+    query = query.ilike("name", `%${filters.query}%`);
+  }
+
+  if (filters?.status) {
+    query = query.eq("status", filters.status);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(`Error al listar campañas: ${error.message}`);
+  }
+
+  const campaigns = (data as DbCampaignWithTemplate[]).map((c) =>
+    mapCampaign(c, c.templates?.name ?? null)
+  );
+
+  // Get stats for all campaigns in one query
+  const campaignIds = campaigns.map((c) => c.id);
+  
+  if (campaignIds.length === 0) {
+    return [];
+  }
+
+  const { data: draftsData, error: draftsError } = await supabase
+    .from("draft_items")
+    .select("campaign_id, state")
+    .in("campaign_id", campaignIds);
+
+  if (draftsError) {
+    throw new Error(`Error al obtener estadísticas: ${draftsError.message}`);
+  }
+
+  // Aggregate stats per campaign
+  const statsMap = new Map<string, CampaignStatsResponse>();
+  
+  for (const draft of draftsData ?? []) {
+    let stats = statsMap.get(draft.campaign_id);
+    if (!stats) {
+      stats = { totalDrafts: 0, pending: 0, sent: 0, failed: 0, excluded: 0 };
+      statsMap.set(draft.campaign_id, stats);
+    }
+    stats.totalDrafts++;
+    switch (draft.state) {
+      case "pending":
+        stats.pending++;
+        break;
+      case "sent":
+        stats.sent++;
+        break;
+      case "failed":
+        stats.failed++;
+        break;
+      case "excluded":
+        stats.excluded++;
+        break;
+    }
+  }
+
+  return campaigns.map((campaign) => ({
+    ...campaign,
+    stats: statsMap.get(campaign.id) ?? {
+      totalDrafts: 0,
+      pending: 0,
+      sent: 0,
+      failed: 0,
+      excluded: 0,
+    },
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Obtener campaña por ID
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getCampaignById(
