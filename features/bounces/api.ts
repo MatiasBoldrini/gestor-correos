@@ -1,5 +1,6 @@
 import type {
   BouncesListResponse,
+  CleanupBouncesResponse,
   ScanBouncesResponse,
 } from "./types";
 
@@ -42,6 +43,28 @@ export async function scanBounces(options?: {
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error ?? "Error al escanear rebotes");
+  }
+
+  return res.json();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Limpieza manual (bulk): eliminar contactos + trash en Gmail
+// ─────────────────────────────────────────────────────────────────────────────
+export async function cleanupBounces(input: {
+  ids: string[];
+  deleteContacts?: boolean;
+  trashGmailMessages?: boolean;
+}): Promise<CleanupBouncesResponse> {
+  const res = await fetch("/api/bounces/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error ?? "Error al limpiar rebotes");
   }
 
   return res.json();

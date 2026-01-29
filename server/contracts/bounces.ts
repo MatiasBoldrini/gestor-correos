@@ -22,6 +22,17 @@ export const scanBouncesSchema = z.object({
 export type ScanBouncesInput = z.infer<typeof scanBouncesSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Parámetros para limpiar rebotes (acción manual)
+// ─────────────────────────────────────────────────────────────────────────────
+export const cleanupBouncesSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+  deleteContacts: z.boolean().optional().default(true),
+  trashGmailMessages: z.boolean().optional().default(true),
+});
+
+export type CleanupBouncesInput = z.infer<typeof cleanupBouncesSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Respuesta de un bounce event
 // ─────────────────────────────────────────────────────────────────────────────
 export type BounceEventResponse = {
@@ -53,4 +64,13 @@ export type ScanBouncesResponse = {
   suppressed: number;
   trashed: number;
   errors: Array<{ messageId: string; error: string }>;
+};
+
+export type CleanupBouncesResponse = {
+  selected: number;
+  deletedContacts: number;
+  trashed: number;
+  skippedUnknownEmails: number;
+  skippedMissingMessageId: number;
+  errors: Array<{ bounceEventId: string; error: string }>;
 };

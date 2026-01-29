@@ -120,3 +120,25 @@ export async function countBounceEvents(): Promise<number> {
 
   return count ?? 0;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Obtener bounce events por ids (para acciones masivas)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getBounceEventsByIds(
+  ids: string[]
+): Promise<BounceEventResponse[]> {
+  if (ids.length === 0) return [];
+
+  const supabase = await createServiceClient();
+
+  const { data, error } = await supabase
+    .from("bounce_events")
+    .select("*")
+    .in("id", ids);
+
+  if (error) {
+    throw new Error(`Error al obtener bounce events: ${error.message}`);
+  }
+
+  return (data as DbBounceEvent[]).map(mapBounceEvent);
+}

@@ -17,16 +17,36 @@ export type BounceMessage = {
   permalink: string;
 };
 
+type BounceSignals = {
+  hasDeliveryStatusMime: boolean;
+  hasContentTypeDeliveryStatusHeader: boolean;
+  hasXFailedRecipientsHeader: boolean;
+  hasSubjectKeyword: boolean;
+  hasSystemSender: boolean;
+  hasSmtpStatusCode: boolean;
+  hasRemoteServerPhrase: boolean;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Construir query de búsqueda para rebotes
 // ─────────────────────────────────────────────────────────────────────────────
 function buildBounceQuery(newerThanDays: number): string {
-  // Query para encontrar mensajes de rebote típicos
-  const fromCriteria = "from:(mailer-daemon OR postmaster OR \"Mail Delivery Subsystem\")";
-  const subjectCriteria = "(subject:(Undeliverable OR \"Delivery Status Notification\" OR \"Mail Delivery Failed\" OR \"Returned mail\" OR \"failure notice\"))";
+  // Alineado a la lógica solicitada:
+  // from:mailer-daemon OR from:postmaster OR subject:"Delivery Status Notification"
+  // + ampliar con remitente/subject típicos de rebote sin perder precisión.
   const timeCriteria = `newer_than:${newerThanDays}d`;
+  const criteria = [
+    "from:mailer-daemon@googlemail.com",
+    "from:mailer-daemon",
+    "from:postmaster",
+    "from:\"Mail Delivery Subsystem\"",
+    "subject:\"Delivery Status Notification\"",
+    "subject:\"Undeliverable:\"",
+    "subject:\"Message not delivered\"",
+    "subject:\"Returned mail: see transcript for details\"",
+  ].join(" OR ");
 
-  return `${fromCriteria} ${subjectCriteria} ${timeCriteria}`;
+  return `${timeCriteria} (${criteria})`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,11 +120,45 @@ export function extractBouncedEmailAndReason(
     return { bouncedEmail, reason };
   }
 
+  const headers = payload.headers ?? [];
+  const subject = getHeaderValue(headers, "Subject");
+  const from = getHeaderValue(headers, "From");
+  const xFailedRecipientsHeader = getHeaderValue(headers, "X-Failed-Recipients");
+  const contentTypeHeader = getHeaderValue(headers, "Content-Type");
+
   // Obtener el texto del mensaje (body o parts)
   const bodyText = extractBodyText(payload);
 
+  const signals: BounceSignals = {
+    hasDeliveryStatusMime: payloadHasMimeType(payload, "message/delivery-status"),
+    hasContentTypeDeliveryStatusHeader:
+      /message\/delivery-status/i.test(contentTypeHeader) ||
+      /Content-Type:\s*message\/delivery-status/i.test(bodyText),
+    hasXFailedRecipientsHeader: /@/.test(xFailedRecipientsHeader),
+    hasSubjectKeyword: subjectMatchesBounceKeywords(subject),
+    hasSystemSender: fromMatchesSystemSenders(from),
+    hasSmtpStatusCode: /\b(450|452|550|554)\b/.test(bodyText),
+    hasRemoteServerPhrase: /The response from the remote server was:/i.test(bodyText),
+  };
+
+  // Si no hay señales claras, no “inventar” emails por heurísticas débiles.
+  const isBounceCandidate =
+    signals.hasSystemSender ||
+    signals.hasSubjectKeyword ||
+    signals.hasDeliveryStatusMime ||
+    signals.hasContentTypeDeliveryStatusHeader ||
+    signals.hasXFailedRecipientsHeader ||
+    signals.hasSmtpStatusCode ||
+    signals.hasRemoteServerPhrase;
+
+  if (!isBounceCandidate) {
+    return { bouncedEmail, reason };
+  }
+
   // Intentar extraer email de distintas fuentes
-  bouncedEmail = extractEmailFromBody(bodyText);
+  bouncedEmail =
+    extractEmailFromXFailedRecipientsHeader(xFailedRecipientsHeader) ??
+    extractEmailFromBody(bodyText);
 
   // Intentar extraer razón
   reason = extractReasonFromBody(bodyText, message.snippet ?? null);
@@ -126,13 +180,18 @@ function extractBodyText(payload: gmail_v1.Schema$MessagePart): string {
   // Buscar en parts recursivamente
   if (payload.parts) {
     for (const part of payload.parts) {
-      // Priorizar text/plain y message/delivery-status
+      // Priorizar text/plain, text/html y message/delivery-status
       if (
         part.mimeType === "text/plain" ||
+        part.mimeType === "text/html" ||
         part.mimeType === "message/delivery-status"
       ) {
         if (part.body?.data) {
-          text += "\n" + decodeBase64Url(part.body.data);
+          const decoded = decodeBase64Url(part.body.data);
+          text += "\n" + decoded;
+          if (part.mimeType === "text/html") {
+            text += "\n" + stripHtml(decoded);
+          }
         }
       }
       // Recursivo para multipart
@@ -151,7 +210,8 @@ function extractBodyText(payload: gmail_v1.Schema$MessagePart): string {
 function decodeBase64Url(data: string): string {
   try {
     const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
-    return Buffer.from(base64, "base64").toString("utf-8");
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+    return Buffer.from(padded, "base64").toString("utf-8");
   } catch {
     return "";
   }
@@ -161,24 +221,22 @@ function decodeBase64Url(data: string): string {
 // Extraer email del body usando heurísticas
 // ─────────────────────────────────────────────────────────────────────────────
 function extractEmailFromBody(bodyText: string): string | null {
-  // Patrones comunes en DSN (Delivery Status Notification)
+  // Priorizar patrones “determinísticos” del reporte DSN / Delivery Status
   const patterns = [
+    // X-Failed-Recipients: email@example.com
+    /X-Failed-Recipients:\s*([^\s<>]+@[^\s<>]+)/i,
     // Final-Recipient: rfc822; email@example.com
     /Final-Recipient:\s*(?:rfc822|RFC822);\s*([^\s<>]+@[^\s<>]+)/i,
     // Original-Recipient: rfc822; email@example.com
     /Original-Recipient:\s*(?:rfc822|RFC822);\s*([^\s<>]+@[^\s<>]+)/i,
     // To: email@example.com (en contexto de rebote)
     /(?:^|\n)To:\s*<?([^\s<>]+@[^\s<>]+)>?/im,
-    // X-Failed-Recipients: email@example.com
-    /X-Failed-Recipients?:\s*([^\s<>]+@[^\s<>]+)/i,
     // The following address(es) failed: email@example.com
     /address(?:es)?\s+failed[^:]*:\s*<?([^\s<>]+@[^\s<>]+)>?/i,
     // Delivery to the following recipient failed: email@example.com
     /recipient\s+failed[^:]*:\s*<?([^\s<>]+@[^\s<>]+)>?/i,
     // <email@example.com>: ... (formato común en postfix)
     /<([^\s<>]+@[^\s<>]+)>:\s/,
-    // Fallback: buscar cualquier email que no sea de sistema
-    /\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/,
   ];
 
   for (const pattern of patterns) {
@@ -220,6 +278,10 @@ function extractReasonFromBody(
 ): string | null {
   // Patrones para extraer códigos/razones de error
   const patterns = [
+    // The response from the remote server was: 550 5.1.1 ...
+    /The response from the remote server was:\s*([^\r\n]+)/i,
+    // Línea con código SMTP de interés (550/554/450/452)
+    /(^|\n)\s*((?:450|452|550|554)[^\r\n]*)/i,
     // Status: 5.1.1 (User unknown)
     /Status:\s*(\d+\.\d+\.\d+[^\r\n]*)/i,
     // Diagnostic-Code: smtp; 550 User not found
@@ -240,8 +302,9 @@ function extractReasonFromBody(
 
   for (const pattern of patterns) {
     const match = bodyText.match(pattern);
-    if (match?.[1]) {
-      const reason = match[1].trim();
+    const candidate = (match?.[1] ?? match?.[2])?.trim();
+    if (candidate) {
+      const reason = candidate;
       if (reason.length > 10 && reason.length < 500) {
         return reason;
       }
@@ -254,6 +317,70 @@ function extractReasonFromBody(
   }
 
   return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers de headers / detección
+// ─────────────────────────────────────────────────────────────────────────────
+function getHeaderValue(
+  headers: gmail_v1.Schema$MessagePartHeader[],
+  name: string
+): string {
+  const found = headers.find((h) => (h.name ?? "").toLowerCase() === name.toLowerCase());
+  return found?.value ?? "";
+}
+
+function subjectMatchesBounceKeywords(subject: string): boolean {
+  const s = subject.trim().toLowerCase();
+  if (!s) return false;
+  const keywords = [
+    "delivery status notification (failure)",
+    "delivery status notification",
+    "undeliverable:",
+    "message not delivered",
+    "returned mail: see transcript for details",
+  ];
+  return keywords.some((k) => s.includes(k));
+}
+
+function extractEmailFromXFailedRecipientsHeader(value: string): string | null {
+  const match = value.match(/([^\s<>]+@[^\s<>]+)/i);
+  if (!match?.[1]) return null;
+  const email = match[1].toLowerCase().trim();
+  return isSystemEmail(email) ? null : email;
+}
+
+function fromMatchesSystemSenders(fromHeader: string): boolean {
+  const value = fromHeader.trim();
+  if (!value) return false;
+
+  // Puede venir como "Name <email@domain>" o solo el email.
+  const addrMatch = value.match(/<([^>]+)>/);
+  const addr = (addrMatch?.[1] ?? value).trim();
+
+  if (/^mailer-daemon@googlemail\.com$/i.test(addr)) return true;
+  if (/^postmaster@/i.test(addr)) return true;
+  if (/mailer-daemon/i.test(value)) return true;
+  if (/mail delivery subsystem/i.test(value)) return true;
+
+  return false;
+}
+
+function payloadHasMimeType(payload: gmail_v1.Schema$MessagePart, mime: string): boolean {
+  if ((payload.mimeType ?? "").toLowerCase() === mime.toLowerCase()) return true;
+  for (const part of payload.parts ?? []) {
+    if (payloadHasMimeType(part, mime)) return true;
+  }
+  return false;
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

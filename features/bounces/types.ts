@@ -22,3 +22,12 @@ export type ScanBouncesResponse = {
   trashed: number;
   errors: Array<{ messageId: string; error: string }>;
 };
+
+export type CleanupBouncesResponse = {
+  selected: number;
+  deletedContacts: number;
+  trashed: number;
+  skippedUnknownEmails: number;
+  skippedMissingMessageId: number;
+  errors: Array<{ bounceEventId: string; error: string }>;
+};

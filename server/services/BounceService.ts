@@ -1,15 +1,24 @@
 import { getFirstGoogleAccount } from "@/server/integrations/db/google-accounts-repo";
 import {
   hasBounceEventByMessageId,
+  getBounceEventsByIds,
   insertBounceEvent,
 } from "@/server/integrations/db/bounce-events-repo";
-import { setContactsBouncedByEmails } from "@/server/integrations/db/contacts-repo";
+import {
+  deleteContactsByEmails,
+  setContactsBouncedByEmails,
+} from "@/server/integrations/db/contacts-repo";
 import {
   listBounceMessageIds,
   processBounceMessage,
   trashMessage,
 } from "@/server/integrations/gmail/bounces";
-import type { ScanBouncesInput, ScanBouncesResponse } from "@/server/contracts/bounces";
+import type {
+  CleanupBouncesInput,
+  CleanupBouncesResponse,
+  ScanBouncesInput,
+  ScanBouncesResponse,
+} from "@/server/contracts/bounces";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Escanear rebotes en Gmail y suprimir contactos
@@ -141,6 +150,69 @@ export async function scanBounces(
   console.log(
     `[BounceService] Escaneo completado: ${result.scanned} escaneados, ${result.created} creados, ${result.suppressed} suprimidos, ${result.trashed} movidos a papelera`
   );
+
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Limpieza manual: eliminar contactos rebotados + mandar a papelera el mail DSN
+// ─────────────────────────────────────────────────────────────────────────────
+export async function cleanupBounces(
+  input: CleanupBouncesInput
+): Promise<CleanupBouncesResponse> {
+  const result: CleanupBouncesResponse = {
+    selected: input.ids.length,
+    deletedContacts: 0,
+    trashed: 0,
+    skippedUnknownEmails: 0,
+    skippedMissingMessageId: 0,
+    errors: [],
+  };
+
+  const bounceEvents = await getBounceEventsByIds(input.ids);
+
+  // Eliminar contactos (si aplica)
+  if (input.deleteContacts) {
+    const emails = bounceEvents
+      .map((b) => b.bouncedEmail)
+      .filter((e) => !e.startsWith("unknown-"));
+
+    result.skippedUnknownEmails = bounceEvents.length - emails.length;
+
+    try {
+      result.deletedContacts = await deleteContactsByEmails(emails);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error desconocido";
+      result.errors.push({ bounceEventId: "delete-contacts", error: msg });
+    }
+  }
+
+  // Mandar mensajes a papelera (si aplica)
+  if (input.trashGmailMessages) {
+    // Obtener cuenta de Google (single-tenant)
+    const googleAccount = await getFirstGoogleAccount();
+    if (!googleAccount) {
+      throw new Error(
+        "No hay cuenta de Google conectada. Iniciá sesión con permisos de Gmail."
+      );
+    }
+
+    for (const bounce of bounceEvents) {
+      const messageId = bounce.gmailMessageId;
+      if (!messageId) {
+        result.skippedMissingMessageId++;
+        continue;
+      }
+
+      try {
+        await trashMessage({ googleAccountId: googleAccount.id, messageId });
+        result.trashed++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Error desconocido";
+        result.errors.push({ bounceEventId: bounce.id, error: msg });
+      }
+    }
+  }
 
   return result;
 }

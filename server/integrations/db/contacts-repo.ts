@@ -529,3 +529,25 @@ export async function setContactsBouncedByEmails(
 
   return data?.length ?? 0;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Eliminar contactos por lista de emails (batch)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function deleteContactsByEmails(emails: string[]): Promise<number> {
+  if (emails.length === 0) return 0;
+
+  const supabase = await createServiceClient();
+  const normalizedEmails = emails.map((e) => e.toLowerCase().trim());
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .delete()
+    .in("email", normalizedEmails)
+    .select("id");
+
+  if (error) {
+    throw new Error(`Error al eliminar contactos por email: ${error.message}`);
+  }
+
+  return data?.length ?? 0;
+}

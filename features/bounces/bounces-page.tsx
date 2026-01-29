@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -12,15 +13,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   IconRefresh,
   IconMailOff,
   IconExternalLink,
   IconChevronLeft,
   IconChevronRight,
   IconLoader2,
+  IconTrash,
 } from "@tabler/icons-react";
 import { toast } from "sonner";
-import { fetchBounces, scanBounces } from "./api";
+import { cleanupBounces, fetchBounces, scanBounces } from "./api";
 import type { BounceEventResponse } from "./types";
 
 const PAGE_SIZE = 25;
@@ -31,6 +41,9 @@ export function BouncesPage() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
 
   const loadBounces = useCallback(async () => {
     setLoading(true);
@@ -87,11 +100,73 @@ export function BouncesPage() {
     setOffset(newOffset);
   };
 
+  const toggleSelected = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const setSelectedForCurrentPage = (checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const b of bounces) {
+        if (checked) next.add(b.id);
+        else next.delete(b.id);
+      }
+      return next;
+    });
+  };
+
+  const handleCleanupConfirm = async () => {
+    if (selectedIds.size === 0) return;
+    setCleaning(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const result = await cleanupBounces({
+        ids,
+        deleteContacts: true,
+        trashGmailMessages: true,
+      });
+
+      toast.success(
+        `Limpieza completada: ${result.deletedContacts} contactos eliminados, ${result.trashed} mails a papelera`
+      );
+
+      if (result.skippedUnknownEmails > 0) {
+        toast.info(
+          `${result.skippedUnknownEmails} rebotes sin email extraíble: no se eliminó contacto`
+        );
+      }
+
+      if (result.errors.length > 0) {
+        console.warn("[BouncesPage] Errores durante limpieza:", result.errors);
+        toast.info(`Limpieza con advertencias: ${result.errors.length} con error`);
+      }
+
+      setCleanupDialogOpen(false);
+      setSelectedIds(new Set());
+      loadBounces();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al limpiar rebotes");
+    } finally {
+      setCleaning(false);
+    }
+  };
+
   // Pagination info
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const showingFrom = total === 0 ? 0 : offset + 1;
   const showingTo = Math.min(offset + PAGE_SIZE, total);
+
+  const pageIds = bounces.map((b) => b.id);
+  const selectedOnPage = pageIds.filter((id) => selectedIds.has(id)).length;
+  const allOnPageSelected = pageIds.length > 0 && selectedOnPage === pageIds.length;
+  const headerCheckboxState =
+    allOnPageSelected ? true : selectedOnPage > 0 ? "indeterminate" : false;
 
   return (
     <div className="space-y-6">
@@ -119,8 +194,23 @@ export function BouncesPage() {
 
       {/* Table Card */}
       <Card className="border-slate-800 bg-slate-900/50">
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
           <CardTitle className="text-white">Rebotes detectados</CardTitle>
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-400">
+                {selectedIds.size} seleccionados
+              </span>
+              <Button
+                variant="outline"
+                onClick={() => setCleanupDialogOpen(true)}
+                className="border-red-500/40 bg-slate-950 text-red-300 hover:bg-red-500/10 hover:text-red-200"
+              >
+                <IconTrash className="mr-2 h-4 w-4" />
+                Eliminar contactos y mandar a papelera
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -142,6 +232,15 @@ export function BouncesPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="border-slate-800 hover:bg-transparent">
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={headerCheckboxState}
+                        onCheckedChange={(value) =>
+                          setSelectedForCurrentPage(value === true)
+                        }
+                        aria-label="Seleccionar todos en esta página"
+                      />
+                    </TableHead>
                     <TableHead className="text-slate-400">Fecha</TableHead>
                     <TableHead className="text-slate-400">Email rebotado</TableHead>
                     <TableHead className="text-slate-400">Motivo</TableHead>
@@ -154,6 +253,15 @@ export function BouncesPage() {
                       key={bounce.id}
                       className="border-slate-800 hover:bg-slate-900/50"
                     >
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIds.has(bounce.id)}
+                          onCheckedChange={(value) =>
+                            toggleSelected(bounce.id, value === true)
+                          }
+                          aria-label={`Seleccionar rebote ${bounce.bouncedEmail}`}
+                        />
+                      </TableCell>
                       <TableCell className="text-slate-300">
                         {formatDate(bounce.detectedAt)}
                       </TableCell>
@@ -227,6 +335,39 @@ export function BouncesPage() {
           </div>
         </div>
       )}
+
+      {/* Cleanup confirmation */}
+      <Dialog open={cleanupDialogOpen} onOpenChange={setCleanupDialogOpen}>
+        <DialogContent className="border-slate-800 bg-slate-950">
+          <DialogHeader>
+            <DialogTitle className="text-white">
+              Eliminar contactos y mandar a papelera
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Vas a eliminar {selectedIds.size} contactos (si el email del rebote
+              pudo extraerse) y enviar a papelera los mensajes de rebote en Gmail.
+              Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCleanupDialogOpen(false)}
+              disabled={cleaning}
+              className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleCleanupConfirm}
+              disabled={cleaning || selectedIds.size === 0}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {cleaning ? "Procesando..." : "Confirmar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
