@@ -93,6 +93,8 @@ export async function scheduleContactSync(options: {
   startRow: number;
   batchSize: number;
   syncStartedAt: string;
+  headers?: string[];
+  attempt?: number;
   delaySeconds?: number;
 }): Promise<{ messageId: string }> {
   const { delaySeconds = 0, ...payload } = options;

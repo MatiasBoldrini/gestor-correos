@@ -28,7 +28,8 @@ export async function POST(
       startRow: 2,
       batchSize: 500,
       syncStartedAt,
-      delaySeconds: 1,
+      // 2s para no saturar la cuota "read requests/min/user" de Google Sheets.
+      delaySeconds: 2,
     });
 
     return NextResponse.json({ success: true, messageId, syncStartedAt });

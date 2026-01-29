@@ -17,6 +17,50 @@ type SyncResult = {
   nextStartRow?: number;
 };
 
+function getEnvInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const CONTACT_SYNC_BATCH_DELAY_SECONDS = getEnvInt(
+  "CONTACT_SYNC_BATCH_DELAY_SECONDS",
+  2
+);
+
+const CONTACT_SYNC_RATE_LIMIT_BASE_DELAY_SECONDS = getEnvInt(
+  "CONTACT_SYNC_RATE_LIMIT_BASE_DELAY_SECONDS",
+  60
+);
+
+const CONTACT_SYNC_RATE_LIMIT_MAX_DELAY_SECONDS = getEnvInt(
+  "CONTACT_SYNC_RATE_LIMIT_MAX_DELAY_SECONDS",
+  15 * 60
+);
+
+function isSheetsRateLimitMessage(message: string): boolean {
+  const m = message.toLowerCase();
+
+  return (
+    m.includes("quota exceeded") ||
+    m.includes("read requests per minute") ||
+    m.includes("user-rate limit") ||
+    m.includes("userratelimitexceeded") ||
+    m.includes("ratelimitexceeded") ||
+    m.includes("rate limit")
+  );
+}
+
+function computeRateLimitDelaySeconds(attempt: number): number {
+  const safeAttempt = Math.max(0, Math.min(20, attempt));
+  const multiplier = Math.min(8, 2 ** safeAttempt);
+  return Math.min(
+    CONTACT_SYNC_RATE_LIMIT_MAX_DELAY_SECONDS,
+    CONTACT_SYNC_RATE_LIMIT_BASE_DELAY_SECONDS * multiplier
+  );
+}
+
 const KNOWN_HEADERS = new Set([
   "email 1",
   "email 2",
@@ -61,7 +105,16 @@ export async function processContactSync(
   payload: SyncContactsPayload
 ): Promise<SyncResult> {
   const supabase = await createServiceClient();
-  const { sourceId, startRow, batchSize, syncStartedAt } = payload;
+  const {
+    sourceId,
+    startRow,
+    batchSize,
+    syncStartedAt,
+    headers: payloadHeaders,
+    attempt: payloadAttempt,
+  } = payload;
+  const attempt = payloadAttempt ?? 0;
+  let headers: string[] | undefined = payloadHeaders;
 
   const { data: source, error: sourceError } = await supabase
     .from("contact_sources")
@@ -93,11 +146,13 @@ export async function processContactSync(
         .eq("id", sourceId);
     }
 
-    const headers = await getSheetHeader({
-      googleAccountId: typedSource.google_account_id,
-      spreadsheetId: typedSource.spreadsheet_id,
-      sheetTab: typedSource.sheet_tab,
-    });
+    if (!headers) {
+      headers = await getSheetHeader({
+        googleAccountId: typedSource.google_account_id,
+        spreadsheetId: typedSource.spreadsheet_id,
+        sheetTab: typedSource.sheet_tab,
+      });
+    }
 
     if (headers.length === 0) {
       throw new Error("La hoja no tiene headers en la fila 1");
@@ -213,7 +268,9 @@ export async function processContactSync(
         startRow: nextStartRow,
         batchSize,
         syncStartedAt: syncStartIso,
-        delaySeconds: 1,
+        headers,
+        attempt: 0,
+        delaySeconds: CONTACT_SYNC_BATCH_DELAY_SECONDS,
       });
 
       return {
@@ -242,6 +299,38 @@ export async function processContactSync(
     return { action: "completed", processed, skipped };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";
+
+    // Si Google Sheets aplica rate-limit, reprogramamos el MISMO batch con backoff
+    // para poder continuar sin que el sync quede "clavado" en el mismo punto.
+    if (isSheetsRateLimitMessage(message)) {
+      const delaySeconds = computeRateLimitDelaySeconds(attempt);
+
+      await scheduleContactSync({
+        sourceId,
+        startRow,
+        batchSize,
+        syncStartedAt: syncStartIso,
+        headers,
+        attempt: attempt + 1,
+        delaySeconds,
+      });
+
+      await supabase
+        .from("contact_sources")
+        .update({
+          last_sync_status: "running",
+          last_sync_error: `Rate limit de Google Sheets. Reintentando en ~${delaySeconds}s. ${message}`,
+        })
+        .eq("id", sourceId);
+
+      return {
+        action: "scheduled_next",
+        processed: 0,
+        skipped: 0,
+        nextStartRow: startRow,
+      };
+    }
+
     await supabase
       .from("contact_sources")
       .update({

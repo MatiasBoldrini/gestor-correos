@@ -5,6 +5,11 @@ export const syncContactsPayloadSchema = z.object({
   startRow: z.number().int().min(2),
   batchSize: z.number().int().min(100).max(2000),
   syncStartedAt: z.string().datetime(),
+  // Optimización: evitar leer headers en cada batch.
+  // Se setea en el primer batch y se propaga en los siguientes.
+  headers: z.array(z.string()).optional(),
+  // Backoff: intentos de reintento por rate-limit/quota (mismo startRow).
+  attempt: z.number().int().min(0).max(20).optional(),
 });
 
 export type SyncContactsPayload = z.infer<typeof syncContactsPayloadSchema>;
