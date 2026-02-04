@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import DOMPurify from "dompurify";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -582,9 +583,62 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
     }
   };
 
+  // Helper: apply signature to HTML (for preview)
+  const applySignatureToHtml = useCallback(
+    (html: string): string => {
+      // Resolve effective signature (campaign override > global)
+      const signatureHtml =
+        (campaign?.signatureHtmlOverride?.trim() ||
+          settings?.signatureDefaultHtml?.trim()) ??
+        null;
+
+      if (!signatureHtml) return html;
+
+      // Insert signature before </body> if exists, otherwise append
+      const signatureBlock = `\n<div style="margin-top:20px;">${signatureHtml}</div>`;
+      const bodyCloseRegex = /<\/body>/i;
+      const match = bodyCloseRegex.exec(html);
+
+      if (match) {
+        return html.slice(0, match.index) + signatureBlock + html.slice(match.index);
+      }
+      return html + signatureBlock;
+    },
+    [campaign?.signatureHtmlOverride, settings?.signatureDefaultHtml]
+  );
+
+  // Compute preview HTML with signature applied (for DraftItems) and sanitized
+  const previewHtmlWithSignature = useMemo(() => {
+    if (!previewItem?.renderedHtml) return "";
+
+    let html = previewItem.renderedHtml;
+
+    // DraftItems have 'state' property, TestSendEvents don't
+    // For DraftItems: apply signature (not stored in draft, applied at send time)
+    // For TestSendEvents: signature already applied when created (after our update)
+    const isDraftItem = "state" in previewItem;
+    if (isDraftItem) {
+      html = applySignatureToHtml(html);
+    }
+
+    // Sanitize for safe rendering
+    return DOMPurify.sanitize(html);
+  }, [previewItem, applySignatureToHtml]);
+
+  // Compute raw HTML with signature (for copying/opening in new tab)
+  const previewHtmlRaw = useMemo(() => {
+    if (!previewItem?.renderedHtml) return "";
+
+    const isDraftItem = "state" in previewItem;
+    if (isDraftItem) {
+      return applySignatureToHtml(previewItem.renderedHtml);
+    }
+    return previewItem.renderedHtml;
+  }, [previewItem, applySignatureToHtml]);
+
   const handleCopyHtml = () => {
-    if (previewItem?.renderedHtml) {
-      navigator.clipboard.writeText(previewItem.renderedHtml);
+    if (previewHtmlRaw) {
+      navigator.clipboard.writeText(previewHtmlRaw);
       toast.success("HTML copiado al portapapeles");
     }
   };
@@ -597,8 +651,8 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
   };
 
   const handleOpenInNewTab = () => {
-    if (previewItem?.renderedHtml) {
-      const blob = new Blob([previewItem.renderedHtml], { type: "text/html" });
+    if (previewHtmlRaw) {
+      const blob = new Blob([previewHtmlRaw], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
     }
@@ -1685,7 +1739,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
               <div
                 className="max-h-[50vh] overflow-y-auto rounded border border-slate-800 bg-white p-4"
                 dangerouslySetInnerHTML={{
-                  __html: previewItem?.renderedHtml ?? "",
+                  __html: previewHtmlWithSignature,
                 }}
               />
             </div>

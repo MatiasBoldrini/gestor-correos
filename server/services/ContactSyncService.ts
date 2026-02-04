@@ -169,23 +169,38 @@ export async function processContactSync(
         })
         .eq("id", sourceId);
 
-      const { data: existingMemberships, error: existingMembershipsError } =
-        await supabase
+      // Paginar para obtener TODOS los contact_id existentes (Supabase limita a 1000 por defecto)
+      const existingContactIds: string[] = [];
+      const PAGE_SIZE = 1000;
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data: page, error: pageError } = await supabase
           .from("contact_source_memberships")
           .select("contact_id")
-          .eq("source_id", sourceId);
+          .eq("source_id", sourceId)
+          .range(offset, offset + PAGE_SIZE - 1);
 
-      if (existingMembershipsError) {
-        throw new Error(
-          `Error al cargar contactos existentes: ${existingMembershipsError.message}`
-        );
+        if (pageError) {
+          throw new Error(
+            `Error al cargar contactos existentes: ${pageError.message}`
+          );
+        }
+
+        if (!page || page.length === 0) {
+          hasMore = false;
+        } else {
+          page.forEach((row) => existingContactIds.push(row.contact_id as string));
+          offset += PAGE_SIZE;
+          hasMore = page.length === PAGE_SIZE;
+        }
       }
 
-      const existingContactIds = Array.from(
-        new Set((existingMemberships ?? []).map((row) => row.contact_id as string))
-      );
+      // Eliminar duplicados
+      const uniqueExistingContactIds = Array.from(new Set(existingContactIds));
 
-      if (existingContactIds.length > 0) {
+      if (uniqueExistingContactIds.length > 0) {
         const { error: deleteMembershipsError } = await supabase
           .from("contact_source_memberships")
           .delete()
@@ -197,10 +212,10 @@ export async function processContactSync(
           );
         }
 
-        resetRemoved = existingContactIds.length;
+        resetRemoved = uniqueExistingContactIds.length;
 
         const referencedIds = new Set<string>();
-        for (const batch of chunkArray(existingContactIds, 500)) {
+        for (const batch of chunkArray(uniqueExistingContactIds, 500)) {
           const { data: referenced, error: referencedError } = await supabase
             .from("contact_source_memberships")
             .select("contact_id")
@@ -218,7 +233,7 @@ export async function processContactSync(
           });
         }
 
-        const orphanContactIds = existingContactIds.filter(
+        const orphanContactIds = uniqueExistingContactIds.filter(
           (id) => !referencedIds.has(id)
         );
 

@@ -47,6 +47,10 @@ import {
 import { calculateNextTick } from "@/server/domain/scheduler";
 import { createUnsubscribeToken } from "@/server/domain/unsubscribe-token";
 import { assertValidEmail } from "@/server/domain/email";
+import {
+  appendSignatureHtml,
+  resolveEffectiveSignature,
+} from "@/server/domain/signature";
 import { sendEmail } from "@/server/integrations/gmail/send";
 import {
   scheduleSendTick,
@@ -381,13 +385,28 @@ export async function sendTestSimulated(
     }
   );
 
+  // Obtener settings para firma global
+  const settings = await getSettings();
+
+  // Resolver firma efectiva (override de campaña > firma global)
+  const effectiveSignature = resolveEffectiveSignature(
+    campaign.signatureHtmlOverride,
+    settings.signatureDefaultHtml
+  );
+
+  // Aplicar firma al HTML
+  const htmlWithSignature = appendSignatureHtml({
+    html: result.html,
+    signatureHtml: effectiveSignature,
+  });
+
   // Crear evento de test
   return createTestSendEvent({
     campaignId,
     contactId: contact.id,
     toEmail: contact.email,
     renderedSubject: result.subject,
-    renderedHtml: result.html,
+    renderedHtml: htmlWithSignature,
   });
 }
 
@@ -458,6 +477,21 @@ export async function sendTestReal(
     }
   );
 
+  // Obtener settings para firma global
+  const settings = await getSettings();
+
+  // Resolver firma efectiva (override de campaña > firma global)
+  const effectiveSignature = resolveEffectiveSignature(
+    campaign.signatureHtmlOverride,
+    settings.signatureDefaultHtml
+  );
+
+  // Aplicar firma al HTML
+  const htmlWithSignature = appendSignatureHtml({
+    html: result.html,
+    signatureHtml: effectiveSignature,
+  });
+
   // Resolver cuenta de Gmail para esta campaña (persistida en DB).
   // Fallback legacy: si no está seteada, usar la del usuario que ejecuta el test y persistirla.
   let googleAccountId = campaign.googleAccountId;
@@ -477,7 +511,7 @@ export async function sendTestReal(
     googleAccountId,
     to: normalizedToEmail,
     subject: `[TEST] ${result.subject}`,
-    html: result.html,
+    html: htmlWithSignature,
     fromAlias: campaign.fromAlias,
   });
 
@@ -487,7 +521,7 @@ export async function sendTestReal(
     contactId: contactId ?? null,
     toEmail: normalizedToEmail,
     renderedSubject: `[TEST] ${result.subject}`,
-    renderedHtml: result.html,
+    renderedHtml: htmlWithSignature,
   });
 
   return {
@@ -837,13 +871,25 @@ export async function processSendTick(
     };
   }
 
+  // Resolver firma efectiva (override de campaña > firma global)
+  const effectiveSignature = resolveEffectiveSignature(
+    campaign.signatureHtmlOverride,
+    settings.signatureDefaultHtml
+  );
+
+  // Aplicar firma al HTML
+  const htmlWithSignature = appendSignatureHtml({
+    html: draftItem.renderedHtml,
+    signatureHtml: effectiveSignature,
+  });
+
   // Enviar el email
   try {
     const sendResult = await sendEmail({
       googleAccountId,
       to: draftItem.toEmail,
       subject: draftItem.renderedSubject,
-      html: draftItem.renderedHtml,
+      html: htmlWithSignature,
       fromAlias: campaign.fromAlias,
     });
 

@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/server/auth/api";
 import { previewTemplateSchema } from "@/server/contracts/templates";
 import { getContactById } from "@/server/integrations/db/contacts-repo";
+import { getSettings } from "@/server/integrations/db/settings-repo";
 import {
   renderHandlebarsTemplate,
   TemplatingError,
 } from "@/server/domain/templating";
+import { appendSignatureHtml } from "@/server/domain/signature";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/templates/preview - Previsualizar plantilla
@@ -63,9 +65,16 @@ export async function POST(request: NextRequest) {
       }
     );
 
+    // Obtener firma global de settings y aplicarla al preview
+    const settings = await getSettings();
+    const htmlWithSignature = appendSignatureHtml({
+      html: result.html,
+      signatureHtml: settings.signatureDefaultHtml,
+    });
+
     return NextResponse.json({
       subject: result.subject,
-      html: result.html,
+      html: htmlWithSignature,
     });
   } catch (err) {
     if (err instanceof TemplatingError) {

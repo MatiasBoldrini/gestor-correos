@@ -80,3 +80,26 @@ export async function fetchSpreadsheets(
   const data = (await res.json()) as { spreadsheets: SpreadsheetInfo[] };
   return data.spreadsheets;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subir asset de firma (imagen)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function uploadSignatureAsset(
+  file: File
+): Promise<{ publicUrl: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("/api/signature-assets", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error ?? "Error al subir imagen");
+  }
+
+  const data = await res.json();
+  return { publicUrl: data.publicUrl };
+}

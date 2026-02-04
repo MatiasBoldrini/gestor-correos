@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import DOMPurify from "dompurify";
 import {
   Card,
   CardContent,
@@ -28,6 +29,7 @@ import {
   IconShield,
   IconPencil,
   IconLoader2,
+  IconPhoto,
 } from "@tabler/icons-react";
 import type { ContactSource, Settings, SpreadsheetInfo } from "./types";
 import {
@@ -36,6 +38,7 @@ import {
   fetchSpreadsheets,
   syncContactSource,
   updateSettings,
+  uploadSignatureAsset,
 } from "./api";
 
 type SettingsPageProps = {
@@ -64,6 +67,11 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
   const [allowlistDomains, setAllowlistDomains] = useState(
     settings.allowlistDomains.join("\n")
   );
+
+  // Signature image upload
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const signatureTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Contact sources
   const [sources, setSources] = useState<ContactSource[]>([]);
@@ -171,6 +179,51 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
       toast.error(err instanceof Error ? err.message : "Error al guardar");
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Upload signature image and insert <img> tag
+  const handleImageUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingImage(true);
+    try {
+      const { publicUrl } = await uploadSignatureAsset(file);
+
+      // Build img tag
+      const imgTag = `<img src="${publicUrl}" alt="Logo" width="140" style="display:block;" />`;
+
+      // Insert at cursor position or append
+      const textarea = signatureTextareaRef.current;
+      if (textarea) {
+        const start = textarea.selectionStart ?? signature.length;
+        const end = textarea.selectionEnd ?? signature.length;
+        const newValue = `${signature.slice(0, start)}${imgTag}${signature.slice(end)}`;
+        setSignature(newValue);
+
+        // Restore focus and cursor after state update
+        window.requestAnimationFrame(() => {
+          textarea.focus();
+          const newPos = start + imgTag.length;
+          textarea.setSelectionRange(newPos, newPos);
+        });
+      } else {
+        // Fallback: append at the end
+        setSignature((prev) => prev + imgTag);
+      }
+
+      toast.success("Imagen subida e insertada");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al subir imagen");
+    } finally {
+      setUploadingImage(false);
+      // Reset input so the same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -388,7 +441,9 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
             {settings.signatureDefaultHtml ? (
               <div
                 className="prose prose-sm prose-invert max-w-none text-slate-300"
-                dangerouslySetInnerHTML={{ __html: settings.signatureDefaultHtml }}
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(settings.signatureDefaultHtml),
+                }}
               />
             ) : (
               <p className="text-sm text-slate-500">No hay firma configurada</p>
@@ -648,27 +703,83 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
 
       {/* Dialog: Firma */}
       <Dialog open={signatureDialogOpen} onOpenChange={setSignatureDialogOpen}>
-        <DialogContent className="border-slate-800 bg-slate-950 sm:max-w-lg">
+        <DialogContent className="border-slate-800 bg-slate-950 sm:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-white">Firma por defecto</DialogTitle>
             <DialogDescription className="text-slate-400">
               HTML que se agregará al final de cada email.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label htmlFor="signature" className="text-slate-300">
-              Firma HTML
-            </Label>
-            <Textarea
-              id="signature"
-              value={signature}
-              onChange={(e) => setSignature(e.target.value)}
-              rows={6}
-              placeholder="<p>Saludos,<br/>Tu nombre</p>"
-              className="border-slate-700 bg-slate-900 font-mono text-sm text-slate-200"
-            />
+
+          <div className="flex-1 overflow-auto space-y-4">
+            {/* Image upload section */}
+            <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-slate-300">
+                  <span className="font-medium">Insertar imagen</span>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    PNG, JPG o WebP (máx. 2 MB)
+                  </p>
+                </div>
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                    id="signature-image-upload"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingImage}
+                    className="border-slate-600 bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  >
+                    {uploadingImage ? (
+                      <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <IconPhoto className="mr-2 h-4 w-4" />
+                    )}
+                    {uploadingImage ? "Subiendo..." : "Subir imagen"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* HTML editor */}
+            <div className="grid gap-2">
+              <Label htmlFor="signature" className="text-slate-300">
+                Firma HTML
+              </Label>
+              <Textarea
+                ref={signatureTextareaRef}
+                id="signature"
+                value={signature}
+                onChange={(e) => setSignature(e.target.value)}
+                rows={6}
+                placeholder="<p>Saludos,<br/>Tu nombre</p>"
+                className="border-slate-700 bg-slate-900 font-mono text-sm text-slate-200"
+              />
+            </div>
+
+            {/* Live preview */}
+            {signature.trim() && (
+              <div className="grid gap-2">
+                <Label className="text-slate-300">Vista previa</Label>
+                <div
+                  className="rounded-md border border-slate-700 bg-white p-3 min-h-[60px]"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(signature),
+                  }}
+                />
+              </div>
+            )}
           </div>
-          <DialogFooter>
+
+          <DialogFooter className="pt-4">
             <Button
               type="button"
               variant="ghost"
