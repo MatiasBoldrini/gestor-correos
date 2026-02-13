@@ -154,13 +154,15 @@ export class ImapBounceScanner implements BounceScanner {
             from: fromTerm,
           });
 
-          for (const uid of searchResult) {
-            const uidStr = String(uid);
-            if (!seenUids.has(uidStr)) {
-              seenUids.add(uidStr);
-              messageIds.push(uidStr);
+          if (searchResult && Array.isArray(searchResult)) {
+            for (const uid of searchResult) {
+              const uidStr = String(uid);
+              if (!seenUids.has(uidStr)) {
+                seenUids.add(uidStr);
+                messageIds.push(uidStr);
+              }
+              if (messageIds.length >= options.maxResults) break;
             }
-            if (messageIds.length >= options.maxResults) break;
           }
 
           if (messageIds.length >= options.maxResults) break;
@@ -180,13 +182,15 @@ export class ImapBounceScanner implements BounceScanner {
               subject: subjectTerm,
             });
 
-            for (const uid of searchResult) {
-              const uidStr = String(uid);
-              if (!seenUids.has(uidStr)) {
-                seenUids.add(uidStr);
-                messageIds.push(uidStr);
+            if (searchResult && Array.isArray(searchResult)) {
+              for (const uid of searchResult) {
+                const uidStr = String(uid);
+                if (!seenUids.has(uidStr)) {
+                  seenUids.add(uidStr);
+                  messageIds.push(uidStr);
+                }
+                if (messageIds.length >= options.maxResults) break;
               }
-              if (messageIds.length >= options.maxResults) break;
             }
 
             if (messageIds.length >= options.maxResults) break;
@@ -255,13 +259,15 @@ export class ImapBounceScanner implements BounceScanner {
             from: fromTerm,
           });
 
-          for (const uid of searchResult) {
-            const uidStr = String(uid);
-            if (!seenUids.has(uidStr)) {
-              seenUids.add(uidStr);
-              messageIds.push(uidStr);
+          if (searchResult && Array.isArray(searchResult)) {
+            for (const uid of searchResult) {
+              const uidStr = String(uid);
+              if (!seenUids.has(uidStr)) {
+                seenUids.add(uidStr);
+                messageIds.push(uidStr);
+              }
+              if (messageIds.length >= options.maxResults) break;
             }
-            if (messageIds.length >= options.maxResults) break;
           }
 
           if (messageIds.length >= options.maxResults) break;
@@ -293,9 +299,20 @@ export class ImapBounceScanner implements BounceScanner {
           envelope: true,
         }, { uid: true });
 
-        const rawSource = message.source?.toString("utf-8") ?? "";
-        const subject = message.envelope?.subject ?? "";
-        const from = message.envelope?.from?.[0]?.address ?? "";
+        if (!message) {
+          return {
+            id: messageId,
+            threadId: null,
+            bouncedEmail: null,
+            reason: null,
+            permalink: null,
+          };
+        }
+
+        const msgObj = message as { source?: Buffer; envelope?: { subject?: string; from?: Array<{ address?: string }> } };
+        const rawSource = msgObj.source?.toString("utf-8") ?? "";
+        const subject = msgObj.envelope?.subject ?? "";
+        const from = msgObj.envelope?.from?.[0]?.address ?? "";
 
         // Extraer email rebotado y razón del raw source
         const bouncedEmail = extractBouncedEmailFromText(rawSource);

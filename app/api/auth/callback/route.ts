@@ -78,15 +78,21 @@ export async function GET(request: Request) {
 
       // Asegurar que existe un email_account asociado al google_account
       {
-        const googleAccountId = existingAccount?.id;
-        if (googleAccountId) {
-          const existingEmailAccount = await getEmailAccountByGoogleAccountId(googleAccountId);
-          if (!existingEmailAccount) {
+        // Buscar la cuenta de Google recién creada/actualizada
+        const { data: googleAcct } = await serviceClient
+          .from("google_accounts")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (googleAcct?.id) {
+          const existingEmailAcct = await getEmailAccountByGoogleAccountId(googleAcct.id);
+          if (!existingEmailAcct) {
             try {
               await createGoogleEmailAccount({
                 userId: user.id,
                 email: user.email!,
-                googleAccountId,
+                googleAccountId: googleAcct.id,
               });
             } catch (err) {
               // No bloquear login si falla la creación del email_account
