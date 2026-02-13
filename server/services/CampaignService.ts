@@ -953,8 +953,8 @@ export async function processSendTick(
       campaignId,
       draftItemId: draftItem.id,
       gmailMessageId: sendResult.messageId,
-      gmailThreadId: sendResult.threadId ?? "",
-      gmailPermalink: sendResult.permalink ?? "",
+      gmailThreadId: sendResult.threadId,
+      gmailPermalink: sendResult.permalink,
     });
 
     // Verificar si quedan más emails pendientes
