@@ -746,6 +746,7 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
             <p className="mt-1 text-sm text-slate-400">
               Plantilla: {campaign.templateName ?? "Sin plantilla"}
               {campaign.fromAlias && ` • Remitente: ${campaign.fromAlias}`}
+              {campaign.emailAccountId && " • Cuenta de envío configurada"}
             </p>
           </div>
         </div>

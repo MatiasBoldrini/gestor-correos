@@ -301,6 +301,9 @@ export async function updateCampaign(
   if (input.signatureHtmlOverride !== undefined) {
     updateData.signature_html_override = input.signatureHtmlOverride;
   }
+  if (input.emailAccountId !== undefined) {
+    updateData.email_account_id = input.emailAccountId;
+  }
 
   const { data, error } = await supabase
     .from("campaigns")
