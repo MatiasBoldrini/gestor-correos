@@ -1,5 +1,5 @@
 # Gestor de Correos
-
+d
 Sistema de gestión de campañas de email para Gmail.
 
 ## Stack
