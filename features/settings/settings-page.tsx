@@ -1133,8 +1133,14 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
       <EmailAccountDialog
         open={emailAccountDialogOpen}
         onOpenChange={setEmailAccountDialogOpen}
-        onCreated={(account) => {
-          setEmailAccounts((prev) => [...prev, account]);
+        onCreated={async () => {
+          // Recargar lista completa para tener todos los campos actualizados
+          try {
+            const updated = await fetchEmailAccounts();
+            setEmailAccounts(updated);
+          } catch {
+            // Silencioso: ya se mostró toast de éxito en el dialog
+          }
         }}
       />
     </div>

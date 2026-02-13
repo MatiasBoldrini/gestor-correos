@@ -89,7 +89,18 @@ export async function POST(request: NextRequest) {
       provider: account.provider,
       label: account.label,
       email: account.email,
+      smtpHost: account.smtpHost,
+      smtpPort: account.smtpPort,
+      smtpSecure: account.smtpSecure,
+      imapHost: account.imapHost,
+      imapPort: account.imapPort,
+      imapSecure: account.imapSecure,
+      imapSmtpUser: account.imapSmtpUser,
+      googleAccountId: account.googleAccountId,
       verified: account.verified,
+      lastVerifiedAt: account.lastVerifiedAt,
+      createdAt: account.createdAt,
+      updatedAt: account.updatedAt,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error desconocido";

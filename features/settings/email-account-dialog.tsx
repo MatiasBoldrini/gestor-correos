@@ -18,13 +18,12 @@ import { IconLoader2, IconPlugConnected } from "@tabler/icons-react";
 import {
   createEmailAccount,
   verifyEmailAccount,
-  type EmailAccountResponse,
 } from "./email-accounts-api";
 
 type EmailAccountDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: (account: EmailAccountResponse) => void;
+  onCreated: () => void;
 };
 
 const PRESETS = {
@@ -136,7 +135,7 @@ export function EmailAccountDialog({
       });
 
       toast.success("Cuenta de email creada. Verificá la conexión.");
-      onCreated(account);
+      onCreated();
       resetForm();
       onOpenChange(false);
     } catch (err) {
@@ -188,7 +187,7 @@ export function EmailAccountDialog({
         );
       }
 
-      onCreated(account);
+      onCreated();
       resetForm();
       onOpenChange(false);
     } catch (err) {
