@@ -22,6 +22,7 @@ type DbCampaign = {
   signature_html_override: string | null;
   created_by: string | null;
   google_account_id: string | null;
+  email_account_id: string | null;
   active_lock: boolean;
   created_at: string;
   updated_at: string;
@@ -49,6 +50,7 @@ function mapCampaign(
     signatureHtmlOverride: campaign.signature_html_override,
     createdBy: campaign.created_by,
     googleAccountId: campaign.google_account_id,
+    emailAccountId: campaign.email_account_id,
     activeLock: campaign.active_lock,
     createdAt: campaign.created_at,
     updatedAt: campaign.updated_at,
@@ -207,7 +209,7 @@ export async function getCampaignById(
 // ─────────────────────────────────────────────────────────────────────────────
 export async function createCampaign(
   input: CreateCampaignInput,
-  options?: { createdByUserId?: string; googleAccountId?: string | null }
+  options?: { createdByUserId?: string; googleAccountId?: string | null; emailAccountId?: string | null }
 ): Promise<CampaignResponse> {
   const supabase = await createServiceClient();
 
@@ -221,6 +223,7 @@ export async function createCampaign(
       signature_html_override: input.signatureHtmlOverride ?? null,
       created_by: options?.createdByUserId ?? null,
       google_account_id: options?.googleAccountId ?? null,
+      email_account_id: options?.emailAccountId ?? null,
       status: "draft",
       active_lock: false,
     })
@@ -251,6 +254,25 @@ export async function setCampaignGoogleAccountId(input: {
 
   if (error) {
     throw new Error(`Error al asociar cuenta de Google a campaña: ${error.message}`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Setear cuenta de email (agnóstica) asociada a una campaña
+// ─────────────────────────────────────────────────────────────────────────────
+export async function setCampaignEmailAccountId(input: {
+  campaignId: string;
+  emailAccountId: string;
+}): Promise<void> {
+  const supabase = await createServiceClient();
+
+  const { error } = await supabase
+    .from("campaigns")
+    .update({ email_account_id: input.emailAccountId })
+    .eq("id", input.campaignId);
+
+  if (error) {
+    throw new Error(`Error al asociar cuenta de email a campaña: ${error.message}`);
   }
 }
 

@@ -1,6 +1,10 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { GOOGLE_OAUTH_SCOPES } from "@/lib/google/scopes";
+import {
+  getEmailAccountByGoogleAccountId,
+  createGoogleEmailAccount,
+} from "@/server/integrations/db/email-accounts-repo";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -71,6 +75,29 @@ export async function GET(request: Request) {
         display_name: user.user_metadata?.full_name ?? null,
         created_at: new Date().toISOString(),
       });
+
+      // Asegurar que existe un email_account asociado al google_account
+      {
+        const googleAccountId = existingAccount?.id;
+        if (googleAccountId) {
+          const existingEmailAccount = await getEmailAccountByGoogleAccountId(googleAccountId);
+          if (!existingEmailAccount) {
+            try {
+              await createGoogleEmailAccount({
+                userId: user.id,
+                email: user.email!,
+                googleAccountId,
+              });
+            } catch (err) {
+              // No bloquear login si falla la creación del email_account
+              console.warn(
+                "[auth/callback] Error creando email_account para Google:",
+                err instanceof Error ? err.message : err
+              );
+            }
+          }
+        }
+      }
 
       const forwardedHost = request.headers.get("x-forwarded-host");
       const isLocalEnv = process.env.NODE_ENV === "development";

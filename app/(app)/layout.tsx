@@ -10,15 +10,24 @@ export default async function AppLayout({
 }) {
   const user = await getAuthorizedUser();
 
-  // Verificar si tiene conexión de Gmail
+  // Verificar si tiene alguna cuenta de email configurada (Google o IMAP/SMTP)
   const supabase = await createServiceClient();
-  const { data: googleAccount } = await supabase
-    .from("google_accounts")
-    .select("refresh_token")
+  const { count: emailAccountCount } = await supabase
+    .from("email_accounts")
+    .select("id", { count: "exact", head: true })
     .eq("user_id", user.id)
-    .single();
+    .eq("verified", true);
 
-  const hasGmailConnection = !!googleAccount?.refresh_token;
+  // Fallback: si no hay email_accounts, verificar google_accounts (backward-compat)
+  let hasGmailConnection = (emailAccountCount ?? 0) > 0;
+  if (!hasGmailConnection) {
+    const { data: googleAccount } = await supabase
+      .from("google_accounts")
+      .select("refresh_token")
+      .eq("user_id", user.id)
+      .single();
+    hasGmailConnection = !!googleAccount?.refresh_token;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950">

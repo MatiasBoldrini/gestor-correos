@@ -153,6 +153,7 @@ export type CampaignResponse = {
   signatureHtmlOverride: string | null;
   createdBy: string | null;
   googleAccountId: string | null;
+  emailAccountId: string | null;
   activeLock: boolean;
   createdAt: string;
   updatedAt: string;
