@@ -85,6 +85,37 @@ pnpm dev
 
 La app estará disponible en http://localhost:3000
 
+## Tests E2E (Playwright)
+
+### 1. Variables de entorno para E2E
+
+Copiá la plantilla:
+
+```bash
+cp .env.test.example .env.test
+```
+
+Completá `.env.test` con credenciales de un entorno Supabase de pruebas aislado.
+
+### 2. Instalar navegadores de Playwright
+
+```bash
+pnpm test:e2e:install
+```
+
+### 3. Ejecutar E2E
+
+```bash
+pnpm test:e2e
+```
+
+Scripts útiles:
+
+- `pnpm test:e2e:ui` (modo UI)
+- `pnpm test:e2e:headed` (navegador visible)
+- `pnpm test:e2e:debug` (debug interactivo)
+- `pnpm test:e2e:smoke` (solo smoke)
+
 ## Estructura del proyecto
 
 ```
