@@ -1,5 +1,7 @@
 import { google } from "googleapis";
 import { getGoogleOAuthClient } from "@/server/integrations/google/oauth";
+import { isExternalMocksEnabled } from "@/server/integrations/testing/mock-mode";
+import { loadE2EFixture } from "@/server/integrations/testing/fixtures-loader";
 
 export type SpreadsheetInfo = {
   id: string;
@@ -12,6 +14,10 @@ type ListOptions = {
   maxItems?: number;
 };
 
+type MockSpreadsheetsFixture = {
+  spreadsheets: SpreadsheetInfo[];
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Listar spreadsheets accesibles por la cuenta
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,6 +25,22 @@ export async function listSpreadsheets(
   googleAccountId: string,
   options: ListOptions = {}
 ): Promise<SpreadsheetInfo[]> {
+  if (isExternalMocksEnabled()) {
+    const fixture = await loadE2EFixture<MockSpreadsheetsFixture>(
+      "google/spreadsheets.json"
+    );
+    const query = options.query?.trim().toLowerCase();
+
+    const filtered = query
+      ? fixture.spreadsheets.filter((sheet) =>
+          sheet.name.toLowerCase().includes(query)
+        )
+      : fixture.spreadsheets;
+
+    const maxItems = options.maxItems ?? filtered.length;
+    return filtered.slice(0, maxItems);
+  }
+
   const oauth2Client = await getGoogleOAuthClient(googleAccountId);
   const drive = google.drive({ version: "v3", auth: oauth2Client });
 

@@ -1,0 +1,12 @@
+{
+  "spreadsheets": [
+    {
+      "id": "sheet-e2e-001",
+      "name": "[E2E] Base de datos principal"
+    },
+    {
+      "id": "sheet-e2e-002",
+      "name": "[E2E] Prospectos secundarios"
+    }
+  ]
+}

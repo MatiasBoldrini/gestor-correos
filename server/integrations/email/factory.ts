@@ -4,6 +4,11 @@ import { createGmailSender } from "./gmail-sender";
 import { SmtpSender } from "./smtp-sender";
 import { GmailBounceScanner } from "./gmail-bounce-scanner";
 import { ImapBounceScanner } from "./imap-bounce-scanner";
+import { isExternalMocksEnabled } from "@/server/integrations/testing/mock-mode";
+import {
+  DeterministicMockBounceScanner,
+  DeterministicMockEmailSender,
+} from "@/server/integrations/testing/mock-email";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Factory: crear EmailSender a partir de un email_account_id
@@ -16,6 +21,10 @@ export async function createEmailSender(
 
   if (!account) {
     throw new Error(`Cuenta de email no encontrada: ${emailAccountId}`);
+  }
+
+  if (isExternalMocksEnabled()) {
+    return new DeterministicMockEmailSender(account.email);
   }
 
   switch (account.provider) {
@@ -62,6 +71,10 @@ export async function createBounceScanner(
 
   if (!account) {
     throw new Error(`Cuenta de email no encontrada: ${emailAccountId}`);
+  }
+
+  if (isExternalMocksEnabled()) {
+    return new DeterministicMockBounceScanner();
   }
 
   switch (account.provider) {

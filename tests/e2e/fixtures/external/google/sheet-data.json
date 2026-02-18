@@ -1,0 +1,24 @@
+{
+  "defaultHeader": ["Email 1", "Nombre", "Apellido", "Empresa", "Posición"],
+  "defaultRows": [
+    ["laura.e2e@example.com", "Laura", "QA", "FAROandes", "Operaciones"],
+    ["nicolas.e2e@example.com", "Nicolás", "QA", "Acme Tech", "Marketing"],
+    ["no-reply@example.com", "No", "Reply", "Sistema", "Automatización"]
+  ],
+  "bySpreadsheetId": {
+    "sheet-e2e-001": {
+      "header": ["Email 1", "Nombre", "Apellido", "Empresa", "Posición"],
+      "rows": [
+        ["contacto1@faroandes.com", "Contacto", "Uno", "FAROandes", "Comercial"],
+        ["contacto2@faroandes.com", "Contacto", "Dos", "FAROandes", "Growth"]
+      ]
+    },
+    "sheet-e2e-002": {
+      "header": ["Email 1", "Nombre", "Apellido", "Empresa", "Posición"],
+      "rows": [
+        ["prospecto1@acme.com", "Prospecto", "Uno", "Acme", "CEO"],
+        ["prospecto2@acme.com", "Prospecto", "Dos", "Acme", "CTO"]
+      ]
+    }
+  }
+}

@@ -4,6 +4,7 @@ import type {
   BounceMessage,
   VerifyConnectionResult,
 } from "./types";
+import { isExternalMocksEnabled } from "@/server/integrations/testing/mock-mode";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ImapBounceScanner — Implementación de BounceScanner usando IMAP
@@ -397,6 +398,10 @@ export class ImapBounceScanner implements BounceScanner {
 export async function verifyImapConnection(
   config: ImapConfig
 ): Promise<VerifyConnectionResult> {
+  if (isExternalMocksEnabled()) {
+    return { success: true };
+  }
+
   const client = new ImapFlow({
     host: config.host,
     port: config.port,

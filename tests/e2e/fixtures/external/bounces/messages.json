@@ -1,0 +1,28 @@
+{
+  "messages": [
+    {
+      "id": "mock-bounce-001",
+      "threadId": "mock-thread-001",
+      "bouncedEmail": "matias.e2e@example.com",
+      "reason": "550 5.1.1 User unknown",
+      "permalink": "https://mail.google.com/mail/u/0/#inbox/mock-bounce-001",
+      "inTrash": false
+    },
+    {
+      "id": "mock-bounce-002",
+      "threadId": "mock-thread-002",
+      "bouncedEmail": "ana.tech@example.com",
+      "reason": "550 5.1.1 Mailbox not found",
+      "permalink": "https://mail.google.com/mail/u/0/#inbox/mock-bounce-002",
+      "inTrash": false
+    },
+    {
+      "id": "mock-bounce-trash-001",
+      "threadId": "mock-thread-003",
+      "bouncedEmail": "rebote.trash@example.com",
+      "reason": "550 5.2.1 Mailbox disabled",
+      "permalink": "https://mail.google.com/mail/u/0/#inbox/mock-bounce-trash-001",
+      "inTrash": true
+    }
+  ]
+}
