@@ -580,6 +580,7 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
                   setMinDelay(settings.minDelaySeconds.toString());
                   setLimitsDialogOpen(true);
                 }}
+                aria-label="Editar límites de envío"
                 className="text-slate-400 hover:text-white"
               >
                 <IconPencil className="h-4 w-4" />
@@ -622,6 +623,7 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
                   setSignature(settings.signatureDefaultHtml ?? "");
                   setSignatureDialogOpen(true);
                 }}
+                aria-label="Editar firma por defecto"
                 className="text-slate-400 hover:text-white"
               >
                 <IconPencil className="h-4 w-4" />
@@ -665,6 +667,7 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
                   setAllowlistDomains(settings.allowlistDomains.join("\n"));
                   setAllowlistDialogOpen(true);
                 }}
+                aria-label="Editar control de acceso"
                 className="text-slate-400 hover:text-white"
               >
                 <IconPencil className="h-4 w-4" />
@@ -720,6 +723,7 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
                   setExcludeKeywords(settings.excludeKeywords.join("\n"));
                   setExcludeKeywordsDialogOpen(true);
                 }}
+                aria-label="Editar keywords de exclusión"
                 className="text-slate-400 hover:text-white"
               >
                 <IconPencil className="h-4 w-4" />
