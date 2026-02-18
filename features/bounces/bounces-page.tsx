@@ -418,6 +418,7 @@ export function BouncesPage() {
               size="sm"
               disabled={currentPage === 1}
               onClick={() => handlePageChange("prev")}
+              aria-label="Página anterior rebotes"
               className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
             >
               <IconChevronLeft className="h-4 w-4" />
@@ -430,6 +431,7 @@ export function BouncesPage() {
               size="sm"
               disabled={currentPage >= totalPages}
               onClick={() => handlePageChange("next")}
+              aria-label="Página siguiente rebotes"
               className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800"
             >
               <IconChevronRight className="h-4 w-4" />
