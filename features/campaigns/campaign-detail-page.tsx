@@ -68,6 +68,7 @@ import {
   includeContactManually,
   sendTestReal,
   fetchTestSendEvents,
+  fetchSendEvents,
   startCampaign,
   pauseCampaign,
   cancelCampaign,
@@ -81,6 +82,7 @@ import type {
   CampaignStats,
   DraftItem,
   TestSendEvent,
+  SendEvent,
   CampaignStatus,
   DraftItemState,
 } from "./types";
@@ -205,6 +207,8 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
 
   // Test events
   const [testEvents, setTestEvents] = useState<TestSendEvent[]>([]);
+  const [sendEvents, setSendEvents] = useState<SendEvent[]>([]);
+  const [sendEventsTotal, setSendEventsTotal] = useState(0);
 
   // Modals
   const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false);
@@ -309,10 +313,21 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
     }
   }, [campaignId]);
 
+  const loadSendEvents = useCallback(async () => {
+    try {
+      const data = await fetchSendEvents(campaignId, { limit: 25, offset: 0 });
+      setSendEvents(data.sendEvents);
+      setSendEventsTotal(data.total);
+    } catch {
+      // Silently fail for send events
+    }
+  }, [campaignId]);
+
   useEffect(() => {
     loadCampaign();
     loadTestEvents();
-  }, [loadCampaign, loadTestEvents]);
+    loadSendEvents();
+  }, [loadCampaign, loadTestEvents, loadSendEvents]);
 
   useEffect(() => {
     if (campaign && (campaign.status === "ready" || stats?.totalDrafts)) {
@@ -331,10 +346,11 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
       const interval = setInterval(() => {
         loadCampaign();
         loadDrafts();
+        loadSendEvents();
       }, 10000); // Refresh every 10 seconds
       return () => clearInterval(interval);
     }
-  }, [campaign?.status, loadCampaign, loadDrafts]);
+  }, [campaign?.status, loadCampaign, loadDrafts, loadSendEvents]);
 
   // Search contacts for include
   useEffect(() => {
@@ -1348,6 +1364,88 @@ export function CampaignDetailPage({ campaignId }: CampaignDetailPageProps) {
                 </TableBody>
               </Table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Send Events (historial real) */}
+      {sendEventsTotal > 0 && (
+        <Card className="border-slate-800 bg-slate-900/50">
+          <CardHeader>
+            <CardTitle className="text-white">
+              Historial de envíos reales ({sendEventsTotal})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-lg border border-slate-800">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-slate-800 hover:bg-transparent">
+                    <TableHead className="text-slate-400">Fecha</TableHead>
+                    <TableHead className="text-slate-400">Destinatario</TableHead>
+                    <TableHead className="text-slate-400">Asunto</TableHead>
+                    <TableHead className="text-slate-400">Estado</TableHead>
+                    <TableHead className="text-slate-400">Detalle</TableHead>
+                    <TableHead className="w-12" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sendEvents.map((event) => (
+                    <TableRow
+                      key={event.id}
+                      className="border-slate-800 hover:bg-slate-900/50"
+                    >
+                      <TableCell className="text-slate-300">
+                        {new Date(event.sentAt).toLocaleString("es-AR")}
+                      </TableCell>
+                      <TableCell className="text-slate-200">
+                        {event.toEmail ?? "—"}
+                      </TableCell>
+                      <TableCell className="max-w-xs truncate text-slate-300">
+                        {event.renderedSubject ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={event.status === "sent" ? "default" : "destructive"}
+                          className={event.status === "sent" ? "bg-green-600" : ""}
+                        >
+                          {event.status === "sent" ? "Enviado" : "Fallido"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-xs truncate text-slate-400">
+                        {event.error ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        {event.gmailPermalink ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            asChild
+                            className="h-8 w-8 p-0 text-slate-400 hover:text-white"
+                          >
+                            <a
+                              href={event.gmailPermalink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="Abrir en Gmail"
+                            >
+                              <IconExternalLink className="h-4 w-4" />
+                            </a>
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-slate-500">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            {sendEventsTotal > sendEvents.length && (
+              <p className="mt-3 text-xs text-slate-500">
+                Mostrando últimos {sendEvents.length} eventos de {sendEventsTotal}.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
