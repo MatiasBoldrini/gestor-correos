@@ -1,6 +1,8 @@
 import { Client } from "@upstash/qstash";
+import { createHash } from "node:crypto";
 import type { SendTickPayload } from "@/server/contracts/campaigns";
 import type { SyncContactsPayload } from "@/server/contracts/contact-sources";
+import { isExternalMocksEnabled } from "@/server/integrations/testing/mock-mode";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Obtener cliente QStash
@@ -13,6 +15,11 @@ function getQStashClient(): Client {
   }
 
   return new Client({ token });
+}
+
+function buildMockMessageId(input: string): string {
+  const hash = createHash("sha1").update(input).digest("hex").slice(0, 16);
+  return `mock-qstash-${hash}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -40,6 +47,14 @@ export async function scheduleSendTick(options: {
 }): Promise<{ messageId: string }> {
   const { campaignId, sendRunId, delaySeconds } = options;
 
+  if (isExternalMocksEnabled()) {
+    return {
+      messageId: buildMockMessageId(
+        `send-tick|${campaignId}|${sendRunId}|${delaySeconds}`
+      ),
+    };
+  }
+
   const client = getQStashClient();
   const baseUrl = getBaseUrl();
 
@@ -64,6 +79,14 @@ export async function scheduleSendTickAt(options: {
   notBefore: Date;
 }): Promise<{ messageId: string }> {
   const { campaignId, sendRunId, notBefore } = options;
+
+  if (isExternalMocksEnabled()) {
+    return {
+      messageId: buildMockMessageId(
+        `send-tick-at|${campaignId}|${sendRunId}|${notBefore.toISOString()}`
+      ),
+    };
+  }
 
   const client = getQStashClient();
   const baseUrl = getBaseUrl();
@@ -98,6 +121,14 @@ export async function scheduleContactSync(options: {
   delaySeconds?: number;
 }): Promise<{ messageId: string }> {
   const { delaySeconds = 0, ...payload } = options;
+
+  if (isExternalMocksEnabled()) {
+    return {
+      messageId: buildMockMessageId(
+        `sync-contacts|${payload.sourceId}|${payload.startRow}|${payload.batchSize}|${delaySeconds}`
+      ),
+    };
+  }
 
   const client = getQStashClient();
   const baseUrl = getBaseUrl();

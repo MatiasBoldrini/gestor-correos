@@ -6,6 +6,7 @@ import type {
   VerifyConnectionResult,
 } from "./types";
 import { assertValidEmail, sanitizeHeaderValue } from "@/server/domain/email";
+import { isExternalMocksEnabled } from "@/server/integrations/testing/mock-mode";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SmtpSender — Implementación de EmailSender usando SMTP (nodemailer)
@@ -79,6 +80,10 @@ export class SmtpSender implements EmailSender {
 export async function verifySmtpConnection(
   config: Omit<SmtpConfig, "senderEmail">
 ): Promise<VerifyConnectionResult> {
+  if (isExternalMocksEnabled()) {
+    return { success: true };
+  }
+
   const transporter = createTransport({
     host: config.host,
     port: config.port,

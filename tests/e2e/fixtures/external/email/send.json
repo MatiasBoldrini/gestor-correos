@@ -1,0 +1,4 @@
+{
+  "provider": "mock",
+  "notes": "El sender mock genera messageId/threadId determinísticos en base a to|subject|senderEmail."
+}
