@@ -63,6 +63,13 @@ export async function PATCH(request: NextRequest) {
       input.signatureDefaultHtml = payload.signatureDefaultHtml || null;
     }
 
+    if (Array.isArray(payload.excludeKeywords)) {
+      input.excludeKeywords = payload.excludeKeywords
+        .filter((k: unknown) => typeof k === "string")
+        .map((k) => k.trim().toLowerCase())
+        .filter((k) => k.length > 0);
+    }
+
     if (Array.isArray(payload.allowlistEmails)) {
       input.allowlistEmails = payload.allowlistEmails.filter(
         (e: unknown) => typeof e === "string" && e.includes("@")
