@@ -116,6 +116,22 @@ Scripts útiles:
 - `pnpm test:e2e:debug` (debug interactivo)
 - `pnpm test:e2e:smoke` (solo smoke)
 
+### CI de E2E
+
+Se incluye workflow en GitHub Actions:
+
+- **Smoke** en PR y push a `main`
+- **Suite completa** en `main` + nightly (cron)
+- Publicación de artefactos (`playwright-report` y `test-results`)
+
+Secrets requeridos en GitHub:
+
+- `E2E_NEXT_PUBLIC_SUPABASE_URL`
+- `E2E_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`
+- `E2E_SUPABASE_SERVICE_ROLE_KEY`
+- `E2E_UNSUBSCRIBE_TOKEN_SECRET`
+- `E2E_TOKEN_ENCRYPTION_KEY`
+
 ## Estructura del proyecto
 
 ```
