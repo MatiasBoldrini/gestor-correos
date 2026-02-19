@@ -56,6 +56,7 @@ import {
   appendSignatureHtml,
   resolveEffectiveSignature,
 } from "@/server/domain/signature";
+import { applyProfessionalEmailBaseStyles } from "@/server/domain/email-html";
 import { createEmailSender } from "@/server/integrations/email/factory";
 import {
   scheduleSendTick,
@@ -276,13 +277,14 @@ export async function generateSnapshot(
           UnsubscribeUrl: unsubscribeUrl,
         }
       );
+      const professionalHtml = applyProfessionalEmailBaseStyles(result.html);
 
       draftItems.push({
         campaignId,
         contactId: contact.id,
         toEmail: contact.email,
         renderedSubject: result.subject,
-        renderedHtml: result.html,
+        renderedHtml: professionalHtml,
       });
     } catch (err) {
       const message =
@@ -376,6 +378,7 @@ export async function includeContactManually(
       UnsubscribeUrl: unsubscribeUrl,
     }
   );
+  const professionalHtml = applyProfessionalEmailBaseStyles(result.html);
 
   // Crear draft item marcado como manual
   return createDraftItem({
@@ -383,7 +386,7 @@ export async function includeContactManually(
     contactId: contact.id,
     toEmail: contact.email,
     renderedSubject: result.subject,
-    renderedHtml: result.html,
+    renderedHtml: professionalHtml,
     includedManually: true,
   });
 }
@@ -467,6 +470,7 @@ export async function sendTestSimulated(
     html: result.html,
     signatureHtml: effectiveSignature,
   });
+  const professionalHtml = applyProfessionalEmailBaseStyles(htmlWithSignature);
 
   // Crear evento de test
   return createTestSendEvent({
@@ -474,7 +478,7 @@ export async function sendTestSimulated(
     contactId: contact.id,
     toEmail: contact.email,
     renderedSubject: result.subject,
-    renderedHtml: htmlWithSignature,
+    renderedHtml: professionalHtml,
   });
 }
 
@@ -559,6 +563,7 @@ export async function sendTestReal(
     html: result.html,
     signatureHtml: effectiveSignature,
   });
+  const professionalHtml = applyProfessionalEmailBaseStyles(htmlWithSignature);
 
   // Resolver cuenta de email para esta campaña (agnóstico de proveedor)
   const emailAccountId = await resolveEmailAccountId(campaign, userId);
@@ -576,7 +581,7 @@ export async function sendTestReal(
   const sendResult = await sender.sendEmail({
     to: normalizedToEmail,
     subject: `[TEST] ${result.subject}`,
-    html: htmlWithSignature,
+    html: professionalHtml,
     fromAlias: campaign.fromAlias,
   });
 
@@ -586,7 +591,7 @@ export async function sendTestReal(
     contactId: contactId ?? null,
     toEmail: normalizedToEmail,
     renderedSubject: `[TEST] ${result.subject}`,
-    renderedHtml: htmlWithSignature,
+    renderedHtml: professionalHtml,
   });
 
   return {
@@ -934,6 +939,7 @@ export async function processSendTick(
     html: draftItem.renderedHtml,
     signatureHtml: effectiveSignature,
   });
+  const professionalHtml = applyProfessionalEmailBaseStyles(htmlWithSignature);
 
   // Enviar el email usando la abstracción (Gmail API o SMTP según provider)
   try {
@@ -942,7 +948,7 @@ export async function processSendTick(
     const sendResult = await sender.sendEmail({
       to: draftItem.toEmail,
       subject: draftItem.renderedSubject,
-      html: htmlWithSignature,
+      html: professionalHtml,
       fromAlias: campaign.fromAlias,
     });
 

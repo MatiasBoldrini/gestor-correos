@@ -382,7 +382,7 @@ function CampaignWizardContent(props: {
                   </Label>
                   <Textarea
                     rows={3}
-                    placeholder="<p>--<br>Firma especial para esta campaña</p>"
+                    placeholder="<p>Saludos cordiales,<br/><strong>Equipo Comercial</strong><br/>Empresa</p>"
                     value={signatureHtmlOverride}
                     onChange={(e) => setSignatureHtmlOverride(e.target.value)}
                     className="border-slate-700 bg-slate-900 font-mono text-sm text-slate-200"

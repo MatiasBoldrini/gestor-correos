@@ -85,7 +85,7 @@ export function TemplatePreview({
         <DialogHeader>
           <DialogTitle className="text-white flex items-center gap-2">
             <IconMail className="h-5 w-5 text-blue-400" />
-            Preview: {template?.name}
+            Vista previa: {template?.name}
           </DialogTitle>
         </DialogHeader>
 
