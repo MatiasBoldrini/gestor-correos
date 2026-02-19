@@ -8,6 +8,7 @@ import {
   TemplatingError,
 } from "@/server/domain/templating";
 import { appendSignatureHtml } from "@/server/domain/signature";
+import { applyProfessionalEmailBaseStyles } from "@/server/domain/email-html";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/templates/preview - Previsualizar plantilla
@@ -71,10 +72,11 @@ export async function POST(request: NextRequest) {
       html: result.html,
       signatureHtml: settings.signatureDefaultHtml,
     });
+    const professionalHtml = applyProfessionalEmailBaseStyles(htmlWithSignature);
 
     return NextResponse.json({
       subject: result.subject,
-      html: htmlWithSignature,
+      html: professionalHtml,
     });
   } catch (err) {
     if (err instanceof TemplatingError) {
