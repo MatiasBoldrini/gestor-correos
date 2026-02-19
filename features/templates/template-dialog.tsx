@@ -165,7 +165,7 @@ export function TemplateDialog({
                 <div className="flex items-center gap-2 text-sm text-slate-300">
                   <IconInfoCircle className="h-4 w-4 text-blue-400" />
                   <span className="font-medium">
-                    Variables disponibles (click para insertar):
+                    Variables disponibles (clic para insertar):
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -185,7 +185,9 @@ export function TemplateDialog({
                 <p className="mt-2 text-xs text-slate-500">
                   Condicional:{" "}
                   <code className="text-emerald-400">
-                    {"{{#if FirstName}}Hola {{FirstName}}{{else}}Hola{{/if}}"}
+                    {
+                      "{{#if FirstName}}Estimado/a {{FirstName}}{{else}}Estimado/a cliente{{/if}}"
+                    }
                   </code>
                 </p>
               </div>
@@ -213,7 +215,7 @@ export function TemplateDialog({
                 </Label>
                 <Input
                   id="subjectTpl"
-                  placeholder="Hola {{FirstName}}, tenemos novedades para vos"
+                  placeholder="Actualización para {{Company}} — propuesta de seguimiento"
                   {...subjectRegister}
                   ref={(el) => {
                     subjectRegister.ref(el);
@@ -237,7 +239,7 @@ export function TemplateDialog({
                 <textarea
                   id="htmlTpl"
                   rows={12}
-                  placeholder="<html><body><h1>Hola {{FirstName}}</h1>...</body></html>"
+                  placeholder={`<html><body><p>Estimado/a {{FirstName}},</p><p>Gracias por tu tiempo. Queremos compartir una actualización relevante para {{Company}}.</p><p>Quedamos atentos para coordinar una reunión.</p><p>Saludos cordiales,<br/>Equipo Comercial</p></body></html>`}
                   {...htmlRegister}
                   ref={(el) => {
                     htmlRegister.ref(el);

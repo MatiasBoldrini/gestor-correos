@@ -83,7 +83,7 @@ export function TemplateLivePreview({
   return (
     <div className="h-full rounded-lg border border-slate-800 bg-slate-950/40 overflow-hidden flex flex-col">
       <div className="border-b border-slate-800 p-3 flex items-center justify-between gap-3 flex-wrap">
-        <div className="text-sm text-slate-200 font-medium">Live preview</div>
+        <div className="text-sm text-slate-200 font-medium">Vista previa en vivo</div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <div className="min-w-[220px]">
@@ -111,7 +111,7 @@ export function TemplateLivePreview({
               onClick={loadPreview}
               disabled={loading || !canPreview}
               className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 disabled:opacity-60"
-              title="Actualizar preview"
+              title="Actualizar vista previa"
             >
               <IconRefresh
                 className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`}

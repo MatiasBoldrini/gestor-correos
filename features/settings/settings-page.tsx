@@ -1001,7 +1001,7 @@ export function SettingsPage({ initialSettings }: SettingsPageProps) {
                 value={signature}
                 onChange={(e) => setSignature(e.target.value)}
                 rows={6}
-                placeholder="<p>Saludos,<br/>Tu nombre</p>"
+                placeholder="<p>Saludos cordiales,<br/><strong>Nombre Apellido</strong><br/>Cargo · Empresa</p>"
                 className="border-slate-700 bg-slate-900 font-mono text-sm text-slate-200"
               />
             </div>
